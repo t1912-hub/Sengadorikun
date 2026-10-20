@@ -1,0 +1,17 @@
+# ビルドの産物（build.command と Xcode が作る。中身は作り直せる）
+build/
+PencilTest.app/
+DerivedData/
+*.xcarchive
+
+# Xcode の個人設定（人ごとに違うので共有しない）
+**/xcuserdata/
+*.xcuserstate
+
+# macOS がフォルダごとに作る見た目の記録
+.DS_Store
+
+# web版をローカルで確認するための自己署名証明書とログ
+# 秘密鍵は共有しない。必要なら serve_https.py が作り直す
+web/*.pem
+web/https.log

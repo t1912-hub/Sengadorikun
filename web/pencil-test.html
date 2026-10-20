@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>線画撮りくん</title>
+<style>
+  :root{
+    --bg:#0d0d0f; --panel:#1a1a1d; --line:#333338;
+    --ink:#efe9dd; --dim:#9a968f; --amber:#d68c45;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+    user-select:none; -webkit-user-select:none; }
+  #app{ display:flex; flex-direction:column; height:100dvh; }
+
+  /* ステージ */
+  #stage{ flex:1; position:relative; display:flex; align-items:center; justify-content:center;
+    background:#000; min-height:0; overflow:hidden; }
+  #frameBox{ position:relative; max-width:100%; max-height:100%; background:#000; overflow:hidden; }
+  #frameBox.bounded{ outline:1px solid rgba(214,140,69,.7); }
+  #cam,#still,#onion{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #cam{ object-fit:cover; }
+  #cam.contain{ object-fit:contain; }
+  #still,#onion{ object-fit:contain; pointer-events:none; }
+  #still{ display:none; background:#000; }
+  #guide{ position:absolute; inset:0; pointer-events:none; }
+  #flash{ position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none;
+    transition:opacity .18s ease-out; }
+  #msg{ position:absolute; padding:16px 20px; text-align:center; color:var(--dim);
+    font-size:12px; max-width:80%; }
+
+  /* フィルムストリップ */
+  #strip{ height:66px; background:var(--panel); border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:6px; padding:0 10px; overflow-x:auto;
+    -webkit-overflow-scrolling:touch; flex:0 0 auto; }
+  #strip canvas{ height:50px; width:50px; object-fit:cover; border-radius:6px;
+    border:2px solid transparent; flex:0 0 auto; background:#000; }
+  #strip canvas.sel{ border-color:var(--amber); }
+  #strip .empty{ color:var(--dim); font-size:11px; padding:0 6px; }
+
+  /* 操作パネル */
+  #panel{ background:var(--panel); border-top:1px solid var(--line);
+    padding:10px 14px 14px; overflow-y:auto; flex:0 0 auto; max-height:46dvh; }
+  .row{ display:flex; align-items:center; gap:8px; margin:8px 0; }
+  .row label{ color:var(--dim); font-size:11px; flex:0 0 auto; min-width:52px; }
+  .lbl{ color:var(--dim); font-size:11px; display:block; margin:10px 0 4px; }
+  .val{ color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums;
+    min-width:42px; text-align:right; }
+  input[type=range]{ flex:1; accent-color:var(--amber); }
+
+  .seg{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button{ flex:1; padding:7px 0; background:transparent; color:var(--dim);
+    border:0; border-right:1px solid var(--line); font-size:12px; font-family:inherit; }
+  .seg button:last-child{ border-right:0; }
+  .seg button.on{ background:var(--amber); color:#141414; }
+
+  #shutterRow{ display:flex; align-items:center; justify-content:center; gap:26px; margin:4px 0 2px; }
+  #shutter{ width:60px; height:60px; border-radius:50%; background:#fff;
+    border:4px solid #555; }
+  .icon{ width:44px; height:36px; border-radius:8px; background:#2a2a2e;
+    color:var(--ink); border:1px solid var(--line); font-size:15px; }
+  button:disabled{ opacity:.35; }
+  button{ font-family:inherit; }
+  .toggle{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink); }
+  .count{ text-align:center; color:var(--dim); font-size:11px;
+    font-variant-numeric:tabular-nums; margin:4px 0; }
+  .note{ color:var(--dim); font-size:10px; line-height:1.5; margin-top:10px; }
+
+  /* 横位置：操作パネルを右へ */
+  @media (orientation:landscape){
+    #app{ flex-direction:row; }
+    #left{ flex:1; display:flex; flex-direction:column; min-width:0; }
+    #panel{ width:280px; max-height:none; height:100dvh;
+      border-top:0; border-left:1px solid var(--line); flex:0 0 280px; }
+  }
+  @media (orientation:portrait){
+    #left{ display:flex; flex-direction:column; flex:1; min-height:0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="stage">
+      <div id="frameBox">
+        <video id="cam" playsinline muted autoplay></video>
+        <canvas id="onion"></canvas>
+        <canvas id="still"></canvas>
+        <svg id="guide"></svg>
+        <div id="flash"></div>
+      </div>
+      <div id="msg">カメラを起動しています…</div>
+    </div>
+    <div id="strip"><span class="empty">撮影したコマがここに並びます</span></div>
+  </div>
+
+  <div id="panel">
+    <div id="shutterRow">
+      <button class="icon" id="undo" title="直前を削除">⌫</button>
+      <button id="shutter" title="撮影"></button>
+      <button class="icon" id="play" title="再生">▶</button>
+    </div>
+    <div class="count"><span id="count">コマ数 0</span></div>
+
+    <div id="stepRow" class="row" style="justify-content:center">
+      <button class="icon" id="prev">◀</button>
+      <button class="icon" id="live" style="width:62px;font-size:12px">ライブ</button>
+      <button class="icon" id="next">▶</button>
+    </div>
+
+    <span class="lbl">再生 fps</span>
+    <div class="seg" id="fpsSeg">
+      <button data-v="6">6</button><button data-v="8">8</button>
+      <button data-v="12" class="on">12</button><button data-v="24">24</button>
+    </div>
+
+    <span class="lbl">画面比率</span>
+    <div class="seg" id="aspSeg">
+      <button data-v="free">そのまま</button>
+      <button data-v="wide" class="on">16:9 横</button>
+      <button data-v="tall">9:16 縦</button>
+    </div>
+
+    <span class="lbl">オニオンスキン</span>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="onionOn" checked> 表示</label>
+      <input type="range" id="onionOp" min="10" max="80" value="35">
+      <span class="val" id="onionVal">35%</span>
+    </div>
+
+    <span class="lbl">鉛筆線の2値化</span>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="binOn"> 有効</label>
+      <button class="icon" id="binReset" style="width:auto;padding:0 10px;font-size:11px">初期値</button>
+    </div>
+    <div id="binOpts" hidden>
+      <div class="seg" id="binMode" style="margin:2px 0 6px">
+        <button data-v="adaptive" class="on">適応</button>
+        <button data-v="simple">単純</button>
+      </div>
+      <div class="row"><label>しきい値</label>
+        <input type="range" id="binTh" min="1" max="99" value="60"><span class="val" id="binThV">60</span></div>
+      <div class="row" id="rowRad"><label>範囲</label>
+        <input type="range" id="binRad" min="2" max="40" value="12"><span class="val" id="binRadV">12</span></div>
+      <div class="row"><label>黒レベル</label>
+        <input type="range" id="binBk" min="0" max="90" value="0"><span class="val" id="binBkV">0</span></div>
+      <div class="row"><label>白レベル</label>
+        <input type="range" id="binWh" min="10" max="100" value="100"><span class="val" id="binWhV">100</span></div>
+      <div class="row"><label>ノイズ除去</label>
+        <input type="range" id="binBl" min="0" max="4" value="1"><span class="val" id="binBlV">1</span></div>
+      <div class="row"><label>線を太く</label>
+        <input type="range" id="binDl" min="0" max="3" value="0"><span class="val" id="binDlV">0</span></div>
+      <div class="row"><label>強度</label>
+        <input type="range" id="binSt" min="0" max="100" value="100"><span class="val" id="binStV">100%</span></div>
+    </div>
+
+    <span class="lbl">フレームガイド</span>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="guideOn" checked> 表示</label>
+      <input type="range" id="safety" min="70" max="98" value="90">
+      <span class="val" id="safetyVal">90%</span>
+    </div>
+
+    <p class="note">
+      space 撮影 / return 再生 / delete 直前を削除<br>
+      ← → コマ送り / esc ライブに戻る<br><br>
+      ホーム画面に追加すると全画面で使えます。<br>
+      ページを閉じるとコマは消えます。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const cam=$("#cam"), still=$("#still"), onion=$("#onion"), guide=$("#guide"),
+      box=$("#frameBox"), strip=$("#strip"), msg=$("#msg"), flash=$("#flash");
+
+const PREVIEW_EDGE = 640;          // メモリ上に持つ画像の長辺
+let frames = [];                    // { raw:canvas, disp:canvas }
+let selected = null;                // null ならライブ
+let playing = false, playIndex = 0, timer = null;
+let fps = 12, aspect = "wide";
+const bin = { on:false, mode:"adaptive", th:0.60, radius:12,
+              black:0, white:1, blur:1, dilate:0, strength:1 };
+
+const RATIO = { free:null, wide:16/9, tall:9/16 };
+
+/* ---------- カメラ ---------- */
+async function startCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    msg.textContent = "このブラウザはカメラに対応していません。Safari で開いてください。";
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ ideal:"environment" },
+              width:{ ideal:1920 }, height:{ ideal:1080 } },
+      audio:false
+    });
+    cam.srcObject = stream;
+    await cam.play();
+    msg.style.display = "none";
+    layout();
+  }catch(e){
+    msg.textContent = "カメラを開けませんでした（" + e.name + "）。\n" +
+      "https:// で開いているか、カメラの許可を確認してください。";
+  }
+}
+
+/* ---------- レイアウト ---------- */
+function layout(){
+  const r = RATIO[aspect];
+  if(r){
+    box.classList.add("bounded");
+    cam.classList.remove("contain");
+    const s = $("#stage").getBoundingClientRect();
+    let w = s.width, h = w / r;
+    if(h > s.height){ h = s.height; w = h * r; }
+    box.style.width = Math.floor(w)+"px";
+    box.style.height = Math.floor(h)+"px";
+  }else{
+    box.classList.remove("bounded");
+    cam.classList.add("contain");
+    box.style.width = "100%";
+    box.style.height = "100%";
+  }
+  drawGuide();
+  drawOnion();
+}
+window.addEventListener("resize", layout);
+window.addEventListener("orientationchange", ()=>setTimeout(layout,300));
+
+/* ---------- ガイド ---------- */
+function drawGuide(){
+  const on = $("#guideOn").checked, r = RATIO[aspect];
+  if(!on || !r){ guide.innerHTML=""; return; }
+  const w = box.clientWidth, h = box.clientHeight;
+  const sf = +$("#safety").value / 100;
+  const sw = w*sf, sh = h*sf, x=(w-sw)/2, y=(h-sh)/2;
+  const arm = Math.min(w,h)*0.035;
+  guide.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  guide.setAttribute("width", w); guide.setAttribute("height", h);
+  guide.innerHTML =
+    `<rect x="${x}" y="${y}" width="${sw}" height="${sh}" fill="none"
+       stroke="rgba(214,140,69,.5)" stroke-width="1" stroke-dasharray="5 4"/>
+     <path d="M${w/2} ${h/2-arm}V${h/2+arm}M${w/2-arm} ${h/2}H${w/2+arm}"
+       stroke="rgba(214,140,69,.75)" stroke-width="1" fill="none"/>`;
+}
+
+/* ---------- 画像処理 ---------- */
+function cropAndScale(){
+  const vw = cam.videoWidth, vh = cam.videoHeight;
+  if(!vw || !vh) return null;
+  const r = RATIO[aspect];
+  let sx=0, sy=0, sw=vw, sh=vh;
+  if(r){
+    if(vw/vh > r){ sw = vh*r; sx = (vw-sw)/2; }
+    else{ sh = vw/r; sy = (vh-sh)/2; }
+  }
+  const scale = Math.min(1, PREVIEW_EDGE / Math.max(sw, sh));
+  const c = document.createElement("canvas");
+  c.width = Math.round(sw*scale); c.height = Math.round(sh*scale);
+  c.getContext("2d").drawImage(cam, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+/* 積分画像。局所平均を O(1) で引くために使う。 */
+function integral(src, w, h){
+  const W = w + 1, ii = new Float64Array(W * (h + 1));
+  for(let y = 0; y < h; y++){
+    let rows = 0;
+    for(let x = 0; x < w; x++){
+      rows += src[y*w + x];
+      ii[(y+1)*W + (x+1)] = ii[y*W + (x+1)] + rows;
+    }
+  }
+  return ii;
+}
+function boxMean(ii, w, h, x, y, r){
+  const W = w + 1;
+  const x0 = Math.max(0, x-r), y0 = Math.max(0, y-r);
+  const x1 = Math.min(w-1, x+r), y1 = Math.min(h-1, y+r);
+  const s = ii[(y1+1)*W + (x1+1)] - ii[y0*W + (x1+1)]
+          - ii[(y1+1)*W + x0]     + ii[y0*W + x0];
+  return s / ((x1-x0+1) * (y1-y0+1));
+}
+function boxBlur(src, w, h, r){
+  const ii = integral(src, w, h), out = new Float32Array(w*h);
+  for(let y = 0; y < h; y++)
+    for(let x = 0; x < w; x++) out[y*w + x] = boxMean(ii, w, h, x, y, r);
+  return out;
+}
+/* 黒を膨らませて細い線を残す（分離型の最小値フィルタ） */
+function dilateBlack(src, w, h, r){
+  const tmp = new Uint8Array(w*h), out = new Uint8Array(w*h);
+  for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+    let m = 255;
+    for(let k = -r; k <= r; k++){ const xx = x+k;
+      if(xx < 0 || xx >= w) continue; const v = src[y*w+xx]; if(v < m) m = v; }
+    tmp[y*w+x] = m;
+  }
+  for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+    let m = 255;
+    for(let k = -r; k <= r; k++){ const yy = y+k;
+      if(yy < 0 || yy >= h) continue; const v = tmp[yy*w+x]; if(v < m) m = v; }
+    out[y*w+x] = m;
+  }
+  return out;
+}
+
+/* 鉛筆線を読みやすくする一連の処理。元の canvas は変更しない。 */
+function processImage(src){
+  const w = src.width, h = src.height, n = w*h;
+  const g = src.getContext("2d");
+  const im = g.getImageData(0, 0, w, h), d = im.data;
+
+  // 1) グレースケール + レベル補正（薄い線を持ち上げる）
+  const lum = new Float32Array(n);
+  const bp = bin.black * 255, wp = bin.white * 255;
+  const span = Math.max(1, wp - bp);
+  for(let i = 0, p = 0; i < n; i++, p += 4){
+    let y = 0.299*d[p] + 0.587*d[p+1] + 0.114*d[p+2];
+    y = (y - bp) / span * 255;
+    lum[i] = y < 0 ? 0 : (y > 255 ? 255 : y);
+  }
+
+  // 2) ノイズ除去
+  const work = bin.blur > 0 ? boxBlur(lum, w, h, bin.blur) : lum;
+
+  // 3) 二値化
+  const bw = new Uint8Array(n);
+  if(bin.mode === "simple"){
+    const t = bin.th * 255;
+    for(let i = 0; i < n; i++) bw[i] = work[i] < t ? 0 : 255;
+  }else{
+    // 局所平均より暗い画素を線とみなす。照明のムラに強い。
+    const ii = integral(work, w, h);
+    const bias = (0.6 - bin.th) * 120;
+    for(let y = 0; y < h; y++)
+      for(let x = 0; x < w; x++){
+        const m = boxMean(ii, w, h, x, y, bin.radius);
+        bw[y*w+x] = work[y*w+x] < m - bias ? 0 : 255;
+      }
+  }
+
+  // 4) 線を太く
+  const fin = bin.dilate > 0 ? dilateBlack(bw, w, h, bin.dilate) : bw;
+
+  // 5) 強度（0 なら元の階調、1 なら完全な2値）
+  const a = bin.strength;
+  const dst = document.createElement("canvas");
+  dst.width = w; dst.height = h;
+  const dg = dst.getContext("2d");
+  const oi = dg.createImageData(w, h), od = oi.data;
+  for(let i = 0, p = 0; i < n; i++, p += 4){
+    od[p] = od[p+1] = od[p+2] = lum[i]*(1-a) + fin[i]*a;
+    od[p+3] = 255;
+  }
+  dg.putImageData(oi, 0, 0);
+  return dst;
+}
+
+const processed = c => bin.on ? processImage(c) : c;
+
+function reprocessAll(){
+  frames.forEach(f => f.disp = processed(f.raw));
+  rebuildStrip();
+  if(selected!==null || playing) showStill();
+  drawOnion();
+}
+
+/* ---------- 表示 ---------- */
+function fit(canvas, target){
+  target.width = box.clientWidth; target.height = box.clientHeight;
+  const g = target.getContext("2d");
+  g.clearRect(0,0,target.width,target.height);
+  if(!canvas) return;
+  const s = Math.min(target.width/canvas.width, target.height/canvas.height);
+  const w = canvas.width*s, h = canvas.height*s;
+  g.drawImage(canvas, (target.width-w)/2, (target.height-h)/2, w, h);
+}
+
+function currentIndex(){
+  if(playing) return frames.length ? playIndex : null;
+  return selected;
+}
+
+function showStill(){
+  const i = currentIndex();
+  if(i===null || !frames[i]){ still.style.display="none"; return; }
+  still.style.display="block";
+  fit(frames[i].disp, still);
+}
+
+function drawOnion(){
+  const show = $("#onionOn").checked && currentIndex()===null && frames.length;
+  if(!show){ onion.width = onion.width; onion.style.opacity=0; return; }
+  onion.style.opacity = +$("#onionOp").value / 100;
+  fit(frames[frames.length-1].disp, onion);
+}
+
+function refresh(){
+  showStill();
+  drawOnion();
+  $("#count").textContent = "コマ数 " + frames.length;
+  $("#undo").disabled = !frames.length || playing;
+  $("#play").disabled = frames.length < 2;
+  $("#play").textContent = playing ? "■" : "▶";
+  $("#prev").disabled = $("#next").disabled = !frames.length || playing;
+  $("#live").disabled = selected===null;
+  [...strip.querySelectorAll("canvas")].forEach((c,i)=>
+    c.classList.toggle("sel", currentIndex()===i));
+}
+
+/* ---------- フィルムストリップ ---------- */
+function rebuildStrip(){
+  strip.innerHTML = "";
+  if(!frames.length){
+    strip.innerHTML = '<span class="empty">撮影したコマがここに並びます</span>';
+    return;
+  }
+  frames.forEach((f,i)=>{
+    const t = document.createElement("canvas");
+    t.width = t.height = 100;
+    const g = t.getContext("2d");
+    const s = Math.max(100/f.disp.width, 100/f.disp.height);
+    const w = f.disp.width*s, h = f.disp.height*s;
+    g.drawImage(f.disp, (100-w)/2, (100-h)/2, w, h);
+    t.onclick = ()=>{ if(playing) return;
+      selected = (selected===i) ? null : i; refresh(); };
+    strip.appendChild(t);
+  });
+  strip.scrollLeft = strip.scrollWidth;
+}
+
+/* ---------- 操作 ---------- */
+function capture(){
+  if(playing) return;
+  const raw = cropAndScale();
+  if(!raw) return;
+  frames.push({ raw, disp: processed(raw) });
+  selected = null;
+  rebuildStrip(); refresh();
+  flash.style.opacity = .45;
+  requestAnimationFrame(()=>{ flash.style.opacity = 0; });
+}
+
+function undo(){
+  if(playing || !frames.length) return;
+  frames.pop(); selected = null; rebuildStrip(); refresh();
+}
+
+function step(d){
+  if(playing || !frames.length) return;
+  const cur = selected===null ? frames.length : selected;
+  const n = cur + d;
+  selected = n < 0 ? 0 : (n >= frames.length ? null : n);
+  refresh();
+}
+
+function togglePlay(){
+  if(playing){ clearInterval(timer); timer=null; playing=false; }
+  else{
+    if(frames.length < 2) return;
+    playing = true; selected = null; playIndex = 0;
+    timer = setInterval(()=>{
+      playIndex = (playIndex + 1) % frames.length;
+      refresh();
+    }, 1000/fps);
+  }
+  refresh();
+}
+
+/* ---------- 配線 ---------- */
+$("#shutter").onclick = capture;
+$("#undo").onclick = undo;
+$("#play").onclick = togglePlay;
+$("#prev").onclick = ()=>step(-1);
+$("#next").onclick = ()=>step(1);
+$("#live").onclick = ()=>{ selected=null; refresh(); };
+
+function seg(id, fn){
+  $(id).querySelectorAll("button").forEach(b=>{
+    b.onclick = ()=>{
+      $(id).querySelectorAll("button").forEach(x=>x.classList.remove("on"));
+      b.classList.add("on"); fn(b.dataset.v);
+    };
+  });
+}
+seg("#fpsSeg", v=>{ fps = +v; if(playing){ togglePlay(); togglePlay(); } });
+seg("#aspSeg", v=>{ aspect = v; layout(); refresh(); });
+
+$("#onionOn").onchange = ()=>drawOnion();
+$("#onionOp").oninput = e=>{ $("#onionVal").textContent = e.target.value+"%"; drawOnion(); };
+const BIN_DEFAULT = { mode:"adaptive", th:60, radius:12, black:0, white:100, blur:1, dilate:0, strength:100 };
+
+function syncBinUI(){
+  $("#binOpts").hidden = !bin.on;
+  $("#rowRad").style.display = bin.mode === "adaptive" ? "" : "none";
+  $("#binThV").textContent = Math.round(bin.th*100);
+  $("#binRadV").textContent = bin.radius;
+  $("#binBkV").textContent = Math.round(bin.black*100);
+  $("#binWhV").textContent = Math.round(bin.white*100);
+  $("#binBlV").textContent = bin.blur;
+  $("#binDlV").textContent = bin.dilate;
+  $("#binStV").textContent = Math.round(bin.strength*100) + "%";
+}
+function applyBin(){ syncBinUI(); if(bin.on) reprocessAll(); }
+
+$("#binOn").onchange = e=>{ bin.on = e.target.checked; syncBinUI(); reprocessAll(); };
+seg("#binMode", v=>{ bin.mode = v; applyBin(); });
+$("#binTh").oninput  = e=>{ bin.th = +e.target.value/100; applyBin(); };
+$("#binRad").oninput = e=>{ bin.radius = +e.target.value; applyBin(); };
+$("#binBk").oninput  = e=>{ bin.black = +e.target.value/100; applyBin(); };
+$("#binWh").oninput  = e=>{ bin.white = +e.target.value/100; applyBin(); };
+$("#binBl").oninput  = e=>{ bin.blur = +e.target.value; applyBin(); };
+$("#binDl").oninput  = e=>{ bin.dilate = +e.target.value; applyBin(); };
+$("#binSt").oninput  = e=>{ bin.strength = +e.target.value/100; applyBin(); };
+$("#binReset").onclick = ()=>{
+  const D = BIN_DEFAULT;
+  bin.mode = D.mode; bin.th = D.th/100; bin.radius = D.radius;
+  bin.black = D.black/100; bin.white = D.white/100;
+  bin.blur = D.blur; bin.dilate = D.dilate; bin.strength = D.strength/100;
+  $("#binTh").value = D.th; $("#binRad").value = D.radius;
+  $("#binBk").value = D.black; $("#binWh").value = D.white;
+  $("#binBl").value = D.blur; $("#binDl").value = D.dilate; $("#binSt").value = D.strength;
+  $("#binMode").querySelectorAll("button").forEach(b=>
+    b.classList.toggle("on", b.dataset.v === D.mode));
+  applyBin();
+};
+$("#guideOn").onchange = drawGuide;
+$("#safety").oninput = e=>{ $("#safetyVal").textContent = e.target.value+"%"; drawGuide(); };
+
+window.addEventListener("keydown", e=>{
+  if(e.target.tagName === "INPUT") return;
+  const k = e.key;
+  if(k === " "){ e.preventDefault(); capture(); }
+  else if(k === "Enter"){ e.preventDefault(); togglePlay(); }
+  else if(k === "Backspace" || k === "Delete"){ e.preventDefault(); undo(); }
+  else if(k === "ArrowLeft"){ e.preventDefault(); step(-1); }
+  else if(k === "ArrowRight"){ e.preventDefault(); step(1); }
+  else if(k === "Escape"){ e.preventDefault(); selected=null; refresh(); }
+});
+
+syncBinUI();
+cam.addEventListener("loadedmetadata", layout);
+startCamera();
+refresh();
+</script>
+</body>
+</html>
