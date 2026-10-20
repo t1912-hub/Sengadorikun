@@ -11,7 +11,7 @@ DerivedData/
 # macOS がフォルダごとに作る見た目の記録
 .DS_Store
 
-# web版をローカルで確認するための自己署名証明書とログ
+# ローカル確認用の自己署名証明書とログ
 # 秘密鍵は共有しない。必要なら serve_https.py が作り直す
-web/*.pem
-web/https.log
+docs/*.pem
+docs/https.log
