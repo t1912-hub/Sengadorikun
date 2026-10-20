@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ラフガキちゃん</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-1024.png">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#0d0d0f">
+<style>
+  :root{
+    --bg:#0d0d0f; --panel:#1a1a1d; --line:#333338;
+    --ink:#efe9dd; --dim:#9a968f; --amber:#d68c45;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+    user-select:none; -webkit-user-select:none; }
+  #app{ display:flex; flex-direction:column; height:100dvh; }
+
+  /* 描く場所 */
+  #stage{ flex:1; position:relative; display:flex; align-items:center; justify-content:center;
+    background:#000; min-height:0; overflow:hidden; }
+  #paper{ position:relative; background:#fff; box-shadow:0 0 0 1px #444; }
+  #paper canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* 指やペンの動きをブラウザのスクロールに取られないようにする */
+  #draw{ touch-action:none; }
+
+  /* コマ一覧 */
+  #strip{ height:66px; background:var(--panel); border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:6px; padding:0 10px; overflow-x:auto;
+    -webkit-overflow-scrolling:touch; flex:0 0 auto; }
+  #strip .cell{ position:relative; flex:0 0 auto; }
+  #strip canvas{ height:50px; width:89px; border-radius:6px; background:#fff;
+    border:2px solid transparent; display:block; }
+  #strip canvas.sel{ border-color:var(--amber); }
+  #strip .badge{ position:absolute; right:3px; bottom:3px; background:var(--amber);
+    color:#141414; font-size:10px; font-weight:700; border-radius:7px; padding:1px 5px;
+    pointer-events:none; }
+  #strip .num{ position:absolute; left:4px; bottom:2px; color:#555; font-size:10px;
+    font-variant-numeric:tabular-nums; pointer-events:none; }
+  #strip .empty{ color:var(--dim); font-size:11px; padding:0 6px; }
+
+  /* 操作パネル */
+  #panel{ background:var(--panel); border-top:1px solid var(--line);
+    padding:10px 14px 14px; overflow-y:auto; flex:0 0 auto; max-height:46dvh; }
+  .row{ display:flex; align-items:center; gap:8px; margin:8px 0; }
+  .row label{ color:var(--dim); font-size:11px; flex:0 0 auto; min-width:52px; }
+  .lbl{ color:var(--dim); font-size:11px; display:block; margin:10px 0 4px; }
+  .val{ color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums;
+    min-width:42px; text-align:right; }
+  input[type=range]{ flex:1; accent-color:var(--amber); }
+  input[type=text]{ flex:1; min-width:0; background:#2a2a2e; color:var(--ink);
+    border:1px solid var(--line); border-radius:7px; padding:6px 8px;
+    font-family:inherit; font-size:12px; }
+  button{ font-family:inherit; }
+  button:disabled{ opacity:.35; }
+
+  .seg{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button{ flex:1; padding:7px 0; background:transparent; color:var(--dim);
+    border:0; border-right:1px solid var(--line); font-size:12px; }
+  .seg button:last-child{ border-right:0; }
+  .seg button.on{ background:var(--amber); color:#141414; }
+
+  .icon{ width:44px; height:36px; border-radius:8px; background:#2a2a2e;
+    color:var(--ink); border:1px solid var(--line); font-size:15px; }
+
+  /* 新しいコマは描いた後にいちばん使うので、横いっぱいで大きく */
+  #addFrame{ width:100%; height:52px; border-radius:10px; background:var(--amber);
+    color:#141414; border:0; font-size:15px; font-weight:700; }
+  #addFrame:disabled{ opacity:.35; }
+
+  #transport{ display:flex; align-items:center; justify-content:center; gap:16px; margin:10px 0 2px; }
+  #transport > button{ flex:0 0 auto; }
+  #play{ width:56px; height:56px; border-radius:50%; font-size:22px;
+    background:#2a2a2e; color:var(--ink); border:1px solid var(--line); }
+  #play.on{ background:var(--amber); color:#141414; border-color:var(--amber); }
+
+  /* 色 */
+  #inks{ display:flex; gap:10px; }
+  #inks button{ width:38px; height:30px; border-radius:7px; border:2px solid var(--line); }
+  #inks button.on{ border-color:var(--amber); border-width:3px; }
+
+  .count{ text-align:center; color:var(--dim); font-size:11px;
+    font-variant-numeric:tabular-nums; margin:4px 0; }
+  .note{ color:var(--dim); font-size:10px; line-height:1.5; margin-top:10px; }
+  .note a{ color:var(--amber); }
+
+  /* コマの長さを選ぶ重ね画面 */
+  #holdPick{ position:fixed; inset:0; background:rgba(0,0,0,.6);
+    display:flex; align-items:center; justify-content:center; z-index:50; }
+  /* id 指定の display:flex は [hidden]{display:none} より強いので打ち消す */
+  #holdPick[hidden]{ display:none; }
+  #holdPick .card{ background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:16px 18px; min-width:280px; }
+  #holdPick .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
+  #holdPick .grid button{ padding:11px 0; background:#2a2a2e; color:var(--ink);
+    border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  #holdPick .grid button.on{ background:var(--amber); color:#141414; }
+  #holdPick .foot{ display:flex; gap:8px; margin-top:10px; }
+  #holdPick .foot button{ flex:1; padding:9px 0; background:transparent;
+    color:var(--dim); border:1px solid var(--line); border-radius:8px; font-size:12px; }
+
+  /* 横位置：操作パネルを右へ */
+  @media (orientation:landscape){
+    #app{ flex-direction:row; }
+    #left{ flex:1; display:flex; flex-direction:column; min-width:0; }
+    #panel{ width:290px; max-height:none; height:100dvh;
+      border-top:0; border-left:1px solid var(--line); flex:0 0 290px; }
+  }
+  @media (orientation:portrait){
+    #left{ display:flex; flex-direction:column; flex:1; min-height:0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="holdPick" hidden>
+  <div class="card">
+    <span class="lbl" style="margin-top:0" id="holdTitle">このコマの長さ</span>
+    <div class="grid" id="holdGrid"></div>
+    <div class="foot">
+      <button id="holdAll">全部に適用</button>
+      <button id="holdDelete">このコマを削除</button>
+      <button id="holdClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+  <div id="left">
+    <div id="stage">
+      <div id="paper">
+        <canvas id="under"></canvas>
+        <canvas id="draw"></canvas>
+      </div>
+    </div>
+    <div id="strip"><span class="empty">コマがここに並びます</span></div>
+  </div>
+
+  <div id="panel">
+    <button id="addFrame">＋ 新しいコマ</button>
+    <div id="transport">
+      <button class="icon" id="prev">◀</button>
+      <button id="play" title="再生">▶</button>
+      <button class="icon" id="next">▶</button>
+    </div>
+    <div class="count"><span id="count">コマ数 0</span></div>
+
+    <span class="lbl">描くもの</span>
+    <div class="seg" id="layerSeg">
+      <button data-v="art" class="on">作画</button>
+      <button data-v="back">背景</button>
+    </div>
+
+    <span class="lbl">道具</span>
+    <div class="seg" id="toolSeg">
+      <button data-v="pencil" class="on">鉛筆</button>
+      <button data-v="pen">ペン</button>
+      <button data-v="marker">マーカー</button>
+      <button data-v="eraser">消しゴム</button>
+    </div>
+
+    <div id="inkBlock">
+      <span class="lbl">色（水色と赤は下書き用）</span>
+      <div id="inks"></div>
+      <div class="row">
+        <label>太さ</label>
+        <input type="range" id="lineW" min="1" max="30" value="6">
+        <span class="val" id="lineWV">6</span>
+      </div>
+    </div>
+
+    <div id="eraserBlock" hidden>
+      <span class="lbl">消しかた</span>
+      <div class="seg" id="eraseSeg">
+        <button data-v="all" class="on">ふつう</button>
+        <button data-v="draft">下書きだけ</button>
+      </div>
+      <span class="lbl">大きさ</span>
+      <div class="seg" id="eraseSizeSeg">
+        <button data-v="s">小</button>
+        <button data-v="m" class="on">中</button>
+        <button data-v="l">大</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="icon" id="undo" style="flex:1;width:auto">取り消す</button>
+      <button class="icon" id="redo" style="flex:1;width:auto">やり直す</button>
+    </div>
+
+    <span class="lbl">オニオンスキン（前は緑・後は赤）</span>
+    <div class="row">
+      <label style="min-width:34px"><input type="checkbox" id="onionOn" checked> 表示</label>
+      <input type="range" id="onionOp" min="5" max="70" value="30">
+      <span class="val" id="onionOpV">30%</span>
+    </div>
+    <div class="row">
+      <label>前後の数</label>
+      <input type="range" id="onionN" min="1" max="3" value="1">
+      <span class="val" id="onionNV">1</span>
+    </div>
+
+    <span class="lbl">背景の濃さ</span>
+    <div class="row">
+      <input type="range" id="backOp" min="0" max="100" value="60">
+      <span class="val" id="backOpV">60%</span>
+    </div>
+
+    <span class="lbl">再生 fps</span>
+    <div class="seg" id="fpsSeg">
+      <button data-v="6">6</button><button data-v="8">8</button>
+      <button data-v="12" class="on">12</button><button data-v="24">24</button>
+    </div>
+
+    <span class="lbl">書き出し</span>
+    <div class="row">
+      <label>名前</label>
+      <input type="text" id="outName" value="rough">
+    </div>
+    <div class="seg" id="sizeSeg" style="margin:2px 0 8px">
+      <button data-v="fhd" class="on">FHD</button>
+      <button data-v="hd">HD</button>
+    </div>
+    <div class="row">
+      <button class="icon" id="exportBtn" style="width:100%;height:40px;font-size:13px">動画で書き出す</button>
+    </div>
+    <div class="count" id="exportMsg"></div>
+
+    <div class="row" style="justify-content:center;margin-top:14px">
+      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">全部消す</button>
+    </div>
+
+    <p class="note">
+      Apple Pencil や スタイラスの筆圧に対応しています。<br>
+      ペンを使うと、手のひらが触れても描きません。<br><br>
+      コマを長押しすると長さや削除を選べます。<br>
+      ホーム画面に追加すると全画面で使えます。<br>
+      描いたものは端末に残るので、閉じても続けられます。<br><br>
+      <a href="../">線画撮りくん（カメラでコマ撮り）へ</a>
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+
+/* 絵はこの座標で持つ。画面の大きさが変わっても同じ絵になる。
+   書き出しは線を引き直すので、何倍に拡げても綺麗に出る。 */
+const SPEC = { w:1920, h:1080 };
+const RATIO = SPEC.w / SPEC.h;
+
+const paper = $("#paper"), under = $("#under"), draw = $("#draw");
+const strip = $("#strip");
+
+/* 1本の線: { tool, color, w, erase, pts:[x,y,圧] } を 1920x1080 の座標で持つ */
+let frames = [];              // { id, strokes:[], redo:[], hold }
+let background = [];          // 全コマで共通の背景。下に薄く敷く。
+let backRedo = [];
+let current = 0;
+let nextId = 1;
+
+let layer = "art";            // art | back
+let tool = "pencil";
+let ink = "#1a1a1a";
+let lineW = 6;
+let eraseKind = "all";        // all | draft
+let eraseSize = "m";
+const ERASE_W = { s:14, m:32, l:72 };
+
+let onionOn = true, onionOp = 0.30, onionN = 1;
+let backOp = 0.60;
+let fps = 12;
+let outSize = "fhd";
+
+let playing = false, playPos = 0, playSeq = [], timer = null;
+let loading = false, exporting = false;
+const HOLDS = [1,2,3,4,6,8,12,24,48];
+let holdTarget = null;
+
+const INKS = [
+  ["#1a1a1a", "黒"],
+  ["#2aa7df", "水色"],
+  ["#e2574c", "赤"]
+];
+/* 下書き色かどうか。「下書きだけ消す」はこの色だけを相手にする。 */
+const isDraft = c => c !== INKS[0][0];
+
+const ONION_BEFORE = "#4caf50";   // 前のコマは緑
+const ONION_AFTER  = "#e2574c";   // 後のコマは赤
+
+/* ---------- 置き場所 ---------- */
+let box = { w:0, h:0 };
+function layout(){
+  const s = $("#stage").getBoundingClientRect();
+  let w = s.width, h = w / RATIO;
+  if(h > s.height){ h = s.height; w = h * RATIO; }
+  box = { w:Math.max(1,Math.floor(w)), h:Math.max(1,Math.floor(h)) };
+  paper.style.width = box.w + "px";
+  paper.style.height = box.h + "px";
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  for(const c of [under, draw]){
+    c.width = Math.round(box.w * dpr);
+    c.height = Math.round(box.h * dpr);
+  }
+  redrawAll();
+}
+window.addEventListener("resize", layout);
+window.addEventListener("orientationchange", ()=>setTimeout(layout, 300));
+
+/* ---------- 線を引く ----------
+   どの大きさの画布にも同じ絵が出るよう、1920 幅を基準に拡大率をかける。 */
+function strokePath(g, st, scale, alphaMul){
+  const pts = st.pts;
+  if(!pts.length) return;
+  const base = st.w * scale;
+  g.save();
+  if(st.erase){
+    g.globalCompositeOperation = "destination-out";
+    g.strokeStyle = "rgba(0,0,0,1)";
+  }else{
+    g.strokeStyle = st.color;
+    if(st.tool === "marker"){
+      g.globalCompositeOperation = "multiply";
+      g.globalAlpha = 0.35 * (alphaMul===undefined?1:alphaMul);
+    }else{
+      g.globalAlpha = (alphaMul===undefined?1:alphaMul);
+    }
+  }
+  g.lineCap = "round";
+  g.lineJoin = "round";
+
+  if(pts.length === 1){
+    const p = pts[0];
+    g.beginPath();
+    g.arc(p[0]*scale, p[1]*scale, width(st, p[2]) * scale / 2, 0, Math.PI*2);
+    g.fillStyle = st.erase ? "rgba(0,0,0,1)" : st.color;
+    if(st.tool === "marker" && !st.erase) g.globalAlpha = 0.35;
+    g.fill();
+    g.restore();
+    return;
+  }
+  // 筆圧で太さが変わるので、区間ごとに引く。間は中点でつないで角を丸める。
+  for(let i = 1; i < pts.length; i++){
+    const a = pts[i-1], b = pts[i];
+    g.lineWidth = Math.max(0.4, width(st, (a[2]+b[2])/2) * scale);
+    if(st.tool === "pencil" && !st.erase){
+      g.globalAlpha = (0.45 + 0.55 * ((a[2]+b[2])/2)) * (alphaMul===undefined?1:alphaMul);
+    }
+    g.beginPath();
+    g.moveTo(a[0]*scale, a[1]*scale);
+    g.lineTo(b[0]*scale, b[1]*scale);
+    g.stroke();
+  }
+  g.restore();
+  function width(s, p){
+    if(s.erase) return s.w;
+    if(s.tool === "pen") return s.w;
+    if(s.tool === "marker") return s.w * 2.5;
+    return s.w * (0.45 + 0.55 * p);      // 鉛筆は筆圧で太さが変わる
+  }
+}
+
+/* 下書き色と本番の色を分けて重ねる。
+   「下書きだけ消す」が本番の線に触れないようにするため。
+   下書きが下、本番が上。ラフを上からなぞる描きかたに合う。 */
+function paintStrokes(g, strokes, scale, alphaMul){
+  const draftSet = strokes.filter(s => (s.erase === 2) || (!s.erase && isDraft(s.color)) || s.erase === 1);
+  const inkSet   = strokes.filter(s => (!s.erase && !isDraft(s.color)) || s.erase === 1);
+  for(const pass of [draftSet, inkSet]){
+    if(!pass.length) continue;
+    const tmp = document.createElement("canvas");
+    tmp.width = g.canvas.width; tmp.height = g.canvas.height;
+    const t = tmp.getContext("2d");
+    for(const st of pass) strokePath(t, st, scale);
+    g.save();
+    if(alphaMul !== undefined) g.globalAlpha = alphaMul;
+    g.drawImage(tmp, 0, 0);
+    g.restore();
+  }
+}
+
+/* 単色で塗りつぶして出す。オニオンスキンの緑・赤に使う。 */
+function paintTinted(g, strokes, scale, color, alpha){
+  if(!strokes.length) return;
+  const tmp = document.createElement("canvas");
+  tmp.width = g.canvas.width; tmp.height = g.canvas.height;
+  const t = tmp.getContext("2d");
+  for(const st of strokes) strokePath(t, st, scale);
+  t.globalCompositeOperation = "source-in";
+  t.fillStyle = color;
+  t.fillRect(0, 0, tmp.width, tmp.height);
+  g.save();
+  g.globalAlpha = alpha;
+  g.drawImage(tmp, 0, 0);
+  g.restore();
+}
+
+/* ---------- 画面を描き直す ---------- */
+function redrawAll(){
+  const g = under.getContext("2d");
+  const scale = under.width / SPEC.w;
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0, 0, under.width, under.height);
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, under.width, under.height);
+
+  // 背景（作画中は薄く、背景を描いている時ははっきり）
+  if(background.length)
+    paintStrokes(g, background, scale, layer === "back" ? 1 : backOp);
+
+  const idx = viewIndex();
+
+  // オニオンスキン
+  if(onionOn && !playing && layer === "art" && frames.length){
+    for(let d = onionN; d >= 1; d--){
+      const depth = 1 - (d - 1) / (onionN + 0.5);
+      const b = idx - d, a = idx + d;
+      if(frames[b]) paintTinted(g, frames[b].strokes, scale, ONION_BEFORE, onionOp * depth);
+      if(frames[a]) paintTinted(g, frames[a].strokes, scale, ONION_AFTER,  onionOp * depth);
+    }
+  }
+
+  // いま見ているコマ
+  if(frames[idx]) paintStrokes(g, frames[idx].strokes, scale);
+
+  clearLive();
+}
+function clearLive(){
+  const g = draw.getContext("2d");
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0, 0, draw.width, draw.height);
+}
+function viewIndex(){
+  if(playing && playSeq.length) return playSeq[Math.min(playPos, playSeq.length-1)];
+  return current;
+}
+
+/* ---------- 描く ---------- */
+let drawing = null;           // いま引いている線
+let penSeen = false;          // ペンが使われたら、指では描かない
+let activeId = null;
+
+function toSpec(e){
+  const r = paper.getBoundingClientRect();
+  return [ (e.clientX - r.left) / r.width  * SPEC.w,
+           (e.clientY - r.top)  / r.height * SPEC.h ];
+}
+function pressureOf(e){
+  if(e.pointerType === "pen"){
+    // ペンによっては押していないと 0 を返すので、下限を入れる
+    return Math.max(0.08, Math.min(1, e.pressure || 0.5));
+  }
+  return 0.62;                // 指やマウスは一定の太さ
+}
+function currentStrokes(){
+  if(layer === "back") return background;
+  return frames[current] ? frames[current].strokes : null;
+}
+
+draw.addEventListener("pointerdown", e=>{
+  if(playing || exporting) return;
+  if(e.pointerType === "pen") penSeen = true;
+  // ペンを使う人の手のひらを無視する
+  if(penSeen && e.pointerType === "touch") return;
+  const list = currentStrokes();
+  if(!list) return;
+  e.preventDefault();
+  activeId = e.pointerId;
+  draw.setPointerCapture(e.pointerId);
+  const p = toSpec(e);
+  drawing = {
+    tool, color: ink,
+    w: tool === "eraser" ? ERASE_W[eraseSize] : lineW,
+    erase: tool === "eraser" ? (eraseKind === "draft" ? 2 : 1) : 0,
+    pts: [[p[0], p[1], pressureOf(e)]]
+  };
+  paintLive();
+});
+draw.addEventListener("pointermove", e=>{
+  if(!drawing || e.pointerId !== activeId) return;
+  e.preventDefault();
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for(const ev of (evs.length ? evs : [e])){
+    const p = toSpec(ev);
+    const last = drawing.pts[drawing.pts.length-1];
+    // 近すぎる点は捨てる。数が増えると保存も描画も重くなる。
+    if(Math.abs(p[0]-last[0]) + Math.abs(p[1]-last[1]) < 1.2) continue;
+    drawing.pts.push([p[0], p[1], pressureOf(ev)]);
+  }
+  paintLive();
+});
+function endStroke(e){
+  if(!drawing || (e && e.pointerId !== activeId)) return;
+  const list = currentStrokes();
+  if(list && drawing.pts.length){
+    list.push(drawing);
+    if(layer === "back"){ backRedo.length = 0; saveBackground(); }
+    else if(frames[current]){ frames[current].redo.length = 0; saveFrame(frames[current]); }
+  }
+  drawing = null; activeId = null;
+  redrawAll();
+  rebuildStrip(); refresh();
+}
+draw.addEventListener("pointerup", endStroke);
+draw.addEventListener("pointercancel", endStroke);
+draw.addEventListener("pointerleave", e=>{ if(drawing) endStroke(e); });
+
+function paintLive(){
+  clearLive();
+  if(!drawing) return;
+  const g = draw.getContext("2d");
+  const scale = draw.width / SPEC.w;
+  // 消しゴムは下の絵を消す操作なので、引いている間は白い線で見せる
+  if(drawing.erase){
+    const show = { ...drawing, erase:0, color:"#ffffff", tool:"pen" };
+    strokePath(g, show, scale, 0.9);
+  }else{
+    strokePath(g, drawing, scale);
+  }
+}
+
+/* ---------- 取り消す / やり直す ---------- */
+function undo(){
+  if(playing) return;
+  if(layer === "back"){
+    if(!background.length) return;
+    backRedo.push(background.pop()); saveBackground();
+  }else{
+    const f = frames[current];
+    if(!f || !f.strokes.length) return;
+    f.redo.push(f.strokes.pop()); saveFrame(f);
+  }
+  redrawAll(); rebuildStrip(); refresh();
+}
+function redo(){
+  if(playing) return;
+  if(layer === "back"){
+    if(!backRedo.length) return;
+    background.push(backRedo.pop()); saveBackground();
+  }else{
+    const f = frames[current];
+    if(!f || !f.redo.length) return;
+    f.strokes.push(f.redo.pop()); saveFrame(f);
+  }
+  redrawAll(); rebuildStrip(); refresh();
+}
+
+/* ---------- コマ ---------- */
+function addFrame(){
+  if(playing) return;
+  const f = { id: nextId++, strokes: [], redo: [], hold: 1 };
+  frames.splice(current + 1, 0, f);
+  current = Math.min(current + 1, frames.length - 1);
+  if(layer === "back"){ layer = "art"; markSeg("#layerSeg", "art"); syncTool(); }
+  saveFrame(f); saveState();
+  redrawAll(); rebuildStrip(); refresh();
+}
+function go(to){
+  if(playing || !frames.length) return;
+  current = Math.max(0, Math.min(frames.length - 1, to));
+  redrawAll(); rebuildStrip(); refresh(); saveState();
+}
+function deleteFrame(i){
+  if(playing || frames.length <= 1) return;
+  const f = frames[i];
+  frames.splice(i, 1);
+  dropFrame(f.id);
+  current = Math.min(current, frames.length - 1);
+  saveState(); redrawAll(); rebuildStrip(); refresh();
+}
+function expanded(){
+  const out = [];
+  frames.forEach((f,i)=>{ const n = Math.max(1, f.hold||1); for(let k=0;k<n;k++) out.push(i); });
+  return out;
+}
+function totalLength(){ return frames.reduce((a,f)=>a + Math.max(1,f.hold||1), 0); }
+
+/* ---------- コマ一覧 ---------- */
+function thumbOf(f){
+  const t = document.createElement("canvas");
+  t.width = 178; t.height = 100;
+  const g = t.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0,0,178,100);
+  const scale = 178 / SPEC.w;
+  if(background.length) paintStrokes(g, background, scale, backOp);
+  paintStrokes(g, f.strokes, scale);
+  return t;
+}
+function rebuildStrip(){
+  strip.innerHTML = "";
+  if(!frames.length){
+    strip.innerHTML = '<span class="empty">' +
+      (loading ? "保存した絵を読み込んでいます…" : "「＋ 新しいコマ」から始めます") + '</span>';
+    return;
+  }
+  const idx = viewIndex();
+  frames.forEach((f,i)=>{
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const t = thumbOf(f);
+    if(i === idx) t.classList.add("sel");
+    cell.appendChild(t);
+    const num = document.createElement("span");
+    num.className = "num"; num.textContent = i + 1;
+    cell.appendChild(num);
+    if((f.hold||1) > 1){
+      const b = document.createElement("span");
+      b.className = "badge"; b.textContent = "×" + f.hold;
+      cell.appendChild(b);
+    }
+    // 軽く触れば移動、長押しで長さと削除。指は触れている間ずっと揺れるので
+    // 少しの動きでは取り消さず、大きく動いた時だけ一覧送りとみなす。
+    let hold = null, sx = 0, sy = 0;
+    const SLOP = 12;
+    const clear = ()=>{ clearTimeout(hold); hold = null; };
+    cell.addEventListener("pointerdown", e=>{
+      if(playing) return;
+      sx = e.clientX; sy = e.clientY;
+      hold = setTimeout(()=>{ hold = null; openHold(i); }, 450);
+    });
+    cell.addEventListener("pointermove", e=>{
+      if(!hold) return;
+      if(Math.abs(e.clientX-sx) > SLOP || Math.abs(e.clientY-sy) > SLOP) clear();
+    });
+    cell.addEventListener("pointerup", ()=>{
+      if(playing) return;
+      if(hold){ clear(); go(i); }
+    });
+    cell.addEventListener("pointercancel", clear);
+    cell.addEventListener("contextmenu", e=>e.preventDefault());
+    strip.appendChild(cell);
+  });
+  const sel = strip.querySelectorAll(".cell")[idx];
+  if(sel && sel.scrollIntoView) sel.scrollIntoView({ block:"nearest", inline:"center" });
+}
+
+/* ---------- コマの長さ ---------- */
+function openHold(i){
+  holdTarget = i;
+  const cur = Math.max(1, frames[i].hold || 1);
+  const grid = $("#holdGrid");
+  grid.innerHTML = "";
+  $("#holdTitle").textContent = (i+1) + "コマ目の長さ（" + fps + "fps）";
+  HOLDS.forEach(n=>{
+    const b = document.createElement("button");
+    const sec = n / fps;
+    b.innerHTML = n + "コマ<br><small style=\"opacity:.65;font-size:10px\">"
+                + (sec < 1 ? sec.toFixed(2) : sec.toFixed(1)) + "秒</small>";
+    if(n === cur) b.classList.add("on");
+    b.onclick = ()=>{ setHold(i, n); closeHold(); };
+    grid.appendChild(b);
+  });
+  $("#holdDelete").disabled = frames.length <= 1;
+  $("#holdPick").hidden = false;
+}
+function closeHold(){ $("#holdPick").hidden = true; holdTarget = null; }
+function setHold(i, n){
+  if(!frames[i]) return;
+  frames[i].hold = Math.max(1, Math.min(48, n));
+  saveState(); rebuildStrip(); refresh();
+}
+
+/* ---------- 再生 ---------- */
+function togglePlay(){
+  if(playing){
+    clearInterval(timer); timer = null; playing = false;
+  }else{
+    if(totalLength() < 2) return;
+    playing = true; playSeq = expanded(); playPos = 0;
+    timer = setInterval(()=>{
+      playPos = (playPos + 1) % playSeq.length;
+      redrawAll(); refresh();
+    }, 1000/fps);
+  }
+  redrawAll(); rebuildStrip(); refresh();
+}
+
+/* ---------- 表示の更新 ---------- */
+function refresh(){
+  const tot = totalLength();
+  $("#count").textContent = frames.length
+    ? "コマ数 " + frames.length + "（長さ " + tot + "コマ / " + (tot/fps).toFixed(1) + "秒）"
+    : "コマ数 0";
+  $("#addFrame").disabled = playing;
+  $("#prev").disabled = playing || current <= 0;
+  $("#next").disabled = playing || current >= frames.length - 1;
+  $("#play").disabled = tot < 2 || exporting;
+  $("#play").textContent = playing ? "■" : "▶";
+  $("#play").classList.toggle("on", playing);
+  $("#exportBtn").disabled = exporting || playing || tot < 2;
+  const f = frames[current];
+  $("#undo").disabled = playing || (layer === "back" ? !background.length : !(f && f.strokes.length));
+  $("#redo").disabled = playing || (layer === "back" ? !backRedo.length : !(f && f.redo.length));
+  [...strip.querySelectorAll(".cell canvas")].forEach((c,i)=>
+    c.classList.toggle("sel", viewIndex() === i));
+}
+function syncTool(){
+  const er = tool === "eraser";
+  $("#eraserBlock").hidden = !er;
+  $("#inkBlock").hidden = er;
+}
+
+/* ---------- 保存 ----------
+   線は座標なので軽い。コマ1枚ごとに置いて、並びと設定は別に持つ。 */
+const DB_NAME = "rafugaki", F_STORE = "frames", M_STORE = "meta";
+let db = null, saveTimer = null;
+
+function openDB(){
+  return new Promise(res=>{
+    if(!window.indexedDB) return res(null);
+    let rq;
+    try{ rq = indexedDB.open(DB_NAME, 1); }catch(e){ return res(null); }
+    rq.onupgradeneeded = ()=>{
+      const d = rq.result;
+      if(!d.objectStoreNames.contains(F_STORE)) d.createObjectStore(F_STORE, { keyPath:"id" });
+      if(!d.objectStoreNames.contains(M_STORE)) d.createObjectStore(M_STORE, { keyPath:"key" });
+    };
+    rq.onsuccess = ()=>res(rq.result);
+    rq.onerror   = ()=>res(null);
+    rq.onblocked = ()=>res(null);
+  });
+}
+function store(name, mode){ return db.transaction(name, mode).objectStore(name); }
+function get(name, key){
+  return new Promise(res=>{
+    try{ const r = store(name, "readonly").get(key);
+         r.onsuccess = ()=>res(r.result); r.onerror = ()=>res(null); }
+    catch(e){ res(null); }
+  });
+}
+/* 座標は小数第1位で足りる。桁を落とすと保存量がかなり減る。 */
+function packStrokes(list){
+  return list.map(s=>({ t:s.tool, c:s.color, w:s.w, e:s.erase,
+    p: s.pts.map(p=>[ Math.round(p[0]*10)/10, Math.round(p[1]*10)/10,
+                      Math.round(p[2]*100)/100 ]) }));
+}
+function unpackStrokes(list){
+  return (list||[]).map(s=>({ tool:s.t, color:s.c, w:s.w, erase:s.e, pts:s.p }));
+}
+function saveFrame(f){
+  if(!db || !f) return;
+  try{ store(F_STORE, "readwrite").put({ id:f.id, s:packStrokes(f.strokes), hold:f.hold }); }catch(e){}
+}
+function dropFrame(id){
+  if(!db) return;
+  try{ store(F_STORE, "readwrite").delete(id); }catch(e){}
+}
+function saveBackground(){
+  if(!db) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    try{ store(M_STORE, "readwrite").put({ key:"background", s:packStrokes(background) }); }catch(e){}
+  }, 250);
+}
+function saveState(){
+  if(!db) return;
+  try{
+    store(M_STORE, "readwrite").put({
+      key:"state", order: frames.map(f=>f.id),
+      holds: frames.map(f=>Math.max(1,f.hold||1)),
+      nextId, current, fps, onionOn, onionOp, onionN, backOp,
+      tool, ink, lineW, eraseKind, eraseSize, outSize,
+      outName: $("#outName").value
+    });
+  }catch(e){}
+}
+async function clearSaved(){
+  if(!db) return;
+  try{ store(F_STORE,"readwrite").clear(); store(M_STORE,"readwrite").clear(); }catch(e){}
+}
+async function loadSaved(){
+  db = await openDB();
+  if(!db) return;
+  const bg = await get(M_STORE, "background");
+  if(bg) background = unpackStrokes(bg.s);
+  const st = await get(M_STORE, "state");
+  if(st){
+    if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
+    if(st.tool){ tool = st.tool; markSeg("#toolSeg", tool); }
+    if(st.ink) ink = st.ink;
+    if(st.lineW){ lineW = st.lineW; $("#lineW").value = lineW; $("#lineWV").textContent = lineW; }
+    if(st.eraseKind){ eraseKind = st.eraseKind; markSeg("#eraseSeg", eraseKind); }
+    if(st.eraseSize){ eraseSize = st.eraseSize; markSeg("#eraseSizeSeg", eraseSize); }
+    if(st.outSize){ outSize = st.outSize; markSeg("#sizeSeg", outSize); }
+    if(st.outName) $("#outName").value = st.outName;
+    if(typeof st.onionOn === "boolean"){ onionOn = st.onionOn; $("#onionOn").checked = onionOn; }
+    if(typeof st.onionOp === "number"){ onionOp = st.onionOp;
+      $("#onionOp").value = Math.round(onionOp*100); $("#onionOpV").textContent = Math.round(onionOp*100)+"%"; }
+    if(typeof st.onionN === "number"){ onionN = st.onionN;
+      $("#onionN").value = onionN; $("#onionNV").textContent = onionN; }
+    if(typeof st.backOp === "number"){ backOp = st.backOp;
+      $("#backOp").value = Math.round(backOp*100); $("#backOpV").textContent = Math.round(backOp*100)+"%"; }
+    nextId = st.nextId || 1;
+    buildInks(); syncTool();
+    if(st.order && st.order.length){
+      loading = true; rebuildStrip();
+      for(let k = 0; k < st.order.length; k++){
+        const rec = await get(F_STORE, st.order[k]);
+        if(!rec) continue;
+        frames.push({ id: rec.id, strokes: unpackStrokes(rec.s), redo: [],
+                      hold: (st.holds && st.holds[k]) || rec.hold || 1 });
+        if(k % 5 === 0 || k === st.order.length - 1){
+          $("#count").textContent = "読み込み中 " + (k+1) + " / " + st.order.length;
+          await new Promise(r=>setTimeout(r, 0));
+        }
+      }
+      loading = false;
+      current = Math.min(st.current || 0, Math.max(0, frames.length - 1));
+    }
+  }
+  if(!frames.length){
+    frames.push({ id: nextId++, strokes: [], redo: [], hold: 1 });
+    current = 0;
+    saveFrame(frames[0]); saveState();
+  }
+  layout(); rebuildStrip(); refresh();
+}
+
+/* ---------- 書き出し ----------
+   線を引き直すので、どの大きさでも本当にその解像度で出る。
+   録るのは実時間なので、作品と同じ長さの時間がかかる。 */
+const OUT_TYPES = ["video/mp4;codecs=avc1.42E01E", "video/mp4",
+                   "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+function pickOutType(){
+  if(!window.MediaRecorder || !MediaRecorder.isTypeSupported) return null;
+  return OUT_TYPES.find(t=>{ try{ return MediaRecorder.isTypeSupported(t); }catch(e){ return false; } }) || null;
+}
+function saveBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 20000);
+}
+async function exportMovie(){
+  if(exporting || playing) return;
+  const seq = expanded();
+  if(seq.length < 2){ $("#exportMsg").textContent = "2コマ以上必要です。"; return; }
+  const type = pickOutType();
+  if(!type){ $("#exportMsg").textContent = "この端末では動画の書き出しができません。"; return; }
+  exporting = true; refresh();
+  const W = outSize === "hd" ? 1280 : 1920;
+  const H = Math.round(W / RATIO / 2) * 2;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  const scale = W / SPEC.w;
+  let stream, rec;
+  try{
+    stream = c.captureStream(0);
+    const bits = Math.min(20000000, Math.max(4000000, Math.round(W*H*fps*0.15)));
+    rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: bits });
+  }catch(e){
+    $("#exportMsg").textContent = "書き出しを始められませんでした（" + e.name + "）。";
+    exporting = false; refresh(); return;
+  }
+  const track = stream.getVideoTracks()[0];
+  const ask = ()=>{ if(track && track.requestFrame) track.requestFrame();
+                    else if(stream.requestFrame) stream.requestFrame(); };
+  const chunks = [];
+  rec.ondataavailable = e=>{ if(e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r=>{ rec.onstop = r; });
+  rec.start();
+  const wait = ms => new Promise(r=>setTimeout(r, ms));
+  const step = 1000 / fps;
+  const put = i =>{
+    g.setTransform(1,0,0,1,0,0);
+    g.globalCompositeOperation = "source-over";
+    g.globalAlpha = 1;
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+    if(background.length) paintStrokes(g, background, scale, backOp);
+    paintStrokes(g, frames[seq[i]].strokes, scale);
+    ask();
+  };
+  // setTimeout は遅れて返るので、開始からの絶対位置を目標にして遅れを吸収する
+  const t0 = performance.now();
+  for(let i = 0; i < seq.length; i++){
+    put(i);
+    $("#exportMsg").textContent = "書き出し中 " + (i+1) + " / " + seq.length;
+    const d = t0 + (i+1)*step - performance.now();
+    if(d > 0) await wait(d);
+  }
+  put(seq.length - 1);
+  const d = t0 + (seq.length + 0.5)*step - performance.now();
+  if(d > 0) await wait(d);
+  rec.stop();
+  await stopped;
+  if(track) track.stop();
+  const ext = type.indexOf("video/mp4") === 0 ? "mp4" : "webm";
+  const blob = new Blob(chunks, { type });
+  if(!blob.size){
+    $("#exportMsg").textContent = "書き出しに失敗しました（中身が空）。";
+  }else{
+    const raw = ($("#outName").value || "rough").trim().replace(/[\\/:*?"<>|]/g, "_");
+    saveBlob(blob, (raw || "rough") + "." + ext);
+    $("#exportMsg").textContent = ext.toUpperCase() + " " + W + "×" + H
+      + " で保存しました（" + Math.round(blob.size/1024) + "KB）。";
+  }
+  exporting = false; refresh();
+}
+
+/* ---------- 配線 ---------- */
+function markSeg(id, v){
+  $(id).querySelectorAll("button").forEach(b=>
+    b.classList.toggle("on", b.dataset.v === String(v)));
+}
+function seg(id, fn){
+  $(id).querySelectorAll("button").forEach(b=>{
+    b.onclick = ()=>{ markSeg(id, b.dataset.v); fn(b.dataset.v); };
+  });
+}
+function buildInks(){
+  const wrap = $("#inks");
+  wrap.innerHTML = "";
+  INKS.forEach(([c, name])=>{
+    const b = document.createElement("button");
+    b.style.background = c;
+    b.title = name;
+    b.classList.toggle("on", c === ink);
+    b.onclick = ()=>{ ink = c; buildInks(); saveState(); };
+    wrap.appendChild(b);
+  });
+}
+
+$("#addFrame").onclick = addFrame;
+$("#prev").onclick = ()=>go(current - 1);
+$("#next").onclick = ()=>go(current + 1);
+$("#play").onclick = togglePlay;
+$("#undo").onclick = undo;
+$("#redo").onclick = redo;
+$("#exportBtn").onclick = exportMovie;
+$("#outName").onchange = saveState;
+
+seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
+seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
+seg("#eraseSeg", v=>{ eraseKind = v; saveState(); });
+seg("#eraseSizeSeg", v=>{ eraseSize = v; saveState(); });
+seg("#fpsSeg", v=>{ fps = +v; saveState(); refresh();
+  if(playing){ togglePlay(); togglePlay(); } });
+seg("#sizeSeg", v=>{ outSize = v; saveState(); });
+
+$("#lineW").oninput = e=>{ lineW = +e.target.value; $("#lineWV").textContent = lineW; saveState(); };
+$("#onionOn").onchange = e=>{ onionOn = e.target.checked; redrawAll(); saveState(); };
+$("#onionOp").oninput = e=>{ onionOp = +e.target.value/100;
+  $("#onionOpV").textContent = e.target.value + "%"; redrawAll(); saveState(); };
+$("#onionN").oninput = e=>{ onionN = +e.target.value;
+  $("#onionNV").textContent = onionN; redrawAll(); saveState(); };
+$("#backOp").oninput = e=>{ backOp = +e.target.value/100;
+  $("#backOpV").textContent = e.target.value + "%"; redrawAll(); rebuildStrip(); saveState(); };
+
+$("#holdClose").onclick = closeHold;
+$("#holdAll").onclick = ()=>{
+  if(holdTarget === null) return;
+  const n = Math.max(1, frames[holdTarget].hold || 1);
+  frames.forEach(f=>f.hold = n);
+  saveState(); rebuildStrip(); refresh(); closeHold();
+};
+$("#holdDelete").onclick = ()=>{
+  if(holdTarget === null) return;
+  const i = holdTarget;
+  closeHold();
+  if(confirm((i+1) + "コマ目を消します。戻せません。")) deleteFrame(i);
+};
+$("#holdPick").onclick = e=>{ if(e.target.id === "holdPick") closeHold(); };
+
+$("#clearAll").onclick = async ()=>{
+  if(playing || exporting) return;
+  if(!confirm("描いたものを全部消します。戻せません。")) return;
+  frames = []; background = []; backRedo = []; current = 0; nextId = 1;
+  await clearSaved();
+  frames.push({ id: nextId++, strokes: [], redo: [], hold: 1 });
+  saveFrame(frames[0]); saveState();
+  redrawAll(); rebuildStrip(); refresh();
+};
+
+window.addEventListener("keydown", e=>{
+  if(e.target.tagName === "INPUT") return;
+  const k = e.key;
+  const meta = e.metaKey || e.ctrlKey;
+  if(meta && k.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if(k === "Enter"){ e.preventDefault(); togglePlay(); }
+  else if(k === "ArrowLeft"){ e.preventDefault(); go(current - 1); }
+  else if(k === "ArrowRight"){ e.preventDefault(); go(current + 1); }
+  else if(k === "n" || k === "N"){ e.preventDefault(); addFrame(); }
+});
+
+buildInks();
+syncTool();
+layout();
+refresh();
+loadSaved();
+</script>
+</body>
+</html>
