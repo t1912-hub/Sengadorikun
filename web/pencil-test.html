@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>線画撮りくん</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-1024.png">
+<meta name="theme-color" content="#0d0d0f">
 <style>
   :root{
     --bg:#0d0d0f; --panel:#1a1a1d; --line:#333338;
@@ -139,13 +142,19 @@
     </div>
     <div id="binOpts" hidden>
       <div class="seg" id="binMode" style="margin:2px 0 6px">
-        <button data-v="adaptive" class="on">適応</button>
+        <button data-v="auto" class="on">おまかせ</button>
+        <button data-v="adaptive">適応</button>
         <button data-v="simple">単純</button>
       </div>
-      <div class="row"><label>しきい値</label>
-        <input type="range" id="binTh" min="1" max="99" value="60"><span class="val" id="binThV">60</span></div>
-      <div class="row" id="rowRad"><label>範囲</label>
-        <input type="range" id="binRad" min="2" max="40" value="12"><span class="val" id="binRadV">12</span></div>
+      <div class="row" id="rowAutoK"><label>拾う強さ</label>
+        <input type="range" id="binK" min="0" max="100" value="47"><span class="val" id="binKV">47</span></div>
+      <div id="binManual">
+        <div class="row"><label>しきい値</label>
+          <input type="range" id="binTh" min="1" max="99" value="60"><span class="val" id="binThV">60</span></div>
+        <div class="row" id="rowRad"><label>範囲</label>
+          <input type="range" id="binRad" min="2" max="40" value="12"><span class="val" id="binRadV">12</span></div>
+      </div>
+      <details id="binMore"><summary class="lbl" style="cursor:pointer">細かい調整</summary>
       <div class="row"><label>黒レベル</label>
         <input type="range" id="binBk" min="0" max="90" value="0"><span class="val" id="binBkV">0</span></div>
       <div class="row"><label>白レベル</label>
@@ -156,6 +165,7 @@
         <input type="range" id="binDl" min="0" max="3" value="0"><span class="val" id="binDlV">0</span></div>
       <div class="row"><label>強度</label>
         <input type="range" id="binSt" min="0" max="100" value="100"><span class="val" id="binStV">100%</span></div>
+      </details>
     </div>
 
     <span class="lbl">フレームガイド</span>
@@ -165,11 +175,15 @@
       <span class="val" id="safetyVal">90%</span>
     </div>
 
+    <div class="row" style="justify-content:center;margin-top:14px">
+      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">全部消す</button>
+    </div>
+
     <p class="note">
       space 撮影 / return 再生 / delete 直前を削除<br>
       ← → コマ送り / esc ライブに戻る<br><br>
       ホーム画面に追加すると全画面で使えます。<br>
-      ページを閉じるとコマは消えます。
+      撮ったコマは端末に残るので、閉じても続けられます。
     </p>
   </div>
 </div>
@@ -180,15 +194,23 @@ const $ = s => document.querySelector(s);
 const cam=$("#cam"), still=$("#still"), onion=$("#onion"), guide=$("#guide"),
       box=$("#frameBox"), strip=$("#strip"), msg=$("#msg"), flash=$("#flash");
 
-const PREVIEW_EDGE = 640;          // メモリ上に持つ画像の長辺
+const PREVIEW_EDGE = 1024;         // メモリ上に持つ画像の長辺（細い鉛筆線を残すため）
 let frames = [];                    // { raw:canvas, disp:canvas }
 let selected = null;                // null ならライブ
 let playing = false, playIndex = 0, timer = null;
 let fps = 12, aspect = "wide";
-const bin = { on:false, mode:"adaptive", th:0.60, radius:12,
-              black:0, white:1, blur:1, dilate:0, strength:1 };
+let nextId = 1;                     // コマに振る通し番号（保存の目印）
+const bin = { on:false, mode:"auto", th:0.60, radius:12,
+              black:0, white:1, blur:1, dilate:0, strength:1, k:0.20 };
 
 const RATIO = { free:null, wide:16/9, tall:9/16 };
+
+/* おまかせの「拾う強さ」と Sauvola の k は向きが逆。
+   k が小さいほどしきい値が局所平均に近づき、薄い線まで拾う。
+   スライダーは直感のまま「右へ動かすほどよく拾う」にしておく。 */
+const K_MIN = 0.03, K_MAX = 0.35;
+const kFromSens = v => K_MAX - (K_MAX - K_MIN) * (v / 100);
+const sensFromK = k => Math.round((K_MAX - k) / (K_MAX - K_MIN) * 100);
 
 /* ---------- カメラ ---------- */
 async function startCamera(){
@@ -334,7 +356,27 @@ function processImage(src){
 
   // 3) 二値化
   const bw = new Uint8Array(n);
-  if(bin.mode === "simple"){
+  if(bin.mode === "auto"){
+    // Sauvola の局所しきい値。紙の影と鉛筆線を分ける。
+    //   T = 平均 × (1 + k × (標準偏差/128 − 1))
+    // 平らな所（影や白地）は標準偏差が小さいので T が下がって白のまま、
+    // 線のある所は標準偏差が大きいので T が上がって拾われる。
+    const ii = integral(work, w, h);
+    const sq = new Float64Array(n);
+    for(let i = 0; i < n; i++) sq[i] = work[i] * work[i];
+    // 二乗の積分は値が大きいので必ず 64bit で持つ（32bit だと精度が落ちる）
+    const ii2 = integral(sq, w, h);
+    const r = Math.max(8, Math.round(Math.min(w, h) / 24));
+    for(let y = 0; y < h; y++)
+      for(let x = 0; x < w; x++){
+        const m  = boxMean(ii,  w, h, x, y, r);
+        const m2 = boxMean(ii2, w, h, x, y, r);
+        const v  = m2 - m*m;
+        const sd = v > 0 ? Math.sqrt(v) : 0;
+        const T  = m * (1 + bin.k * (sd/128 - 1));
+        bw[y*w+x] = work[y*w+x] < T ? 0 : 255;
+      }
+  }else if(bin.mode === "simple"){
     const t = bin.th * 255;
     for(let i = 0; i < n; i++) bw[i] = work[i] < t ? 0 : 255;
   }else{
@@ -443,16 +485,20 @@ function capture(){
   if(playing) return;
   const raw = cropAndScale();
   if(!raw) return;
-  frames.push({ raw, disp: processed(raw) });
+  const f = { id: nextId++, raw, disp: processed(raw) };
+  frames.push(f);
   selected = null;
   rebuildStrip(); refresh();
+  saveFrame(f); saveState();
   flash.style.opacity = .45;
   requestAnimationFrame(()=>{ flash.style.opacity = 0; });
 }
 
 function undo(){
   if(playing || !frames.length) return;
-  frames.pop(); selected = null; rebuildStrip(); refresh();
+  const f = frames.pop();
+  dropFrame(f.id); saveState();
+  selected = null; rebuildStrip(); refresh();
 }
 
 function step(d){
@@ -476,6 +522,115 @@ function togglePlay(){
   refresh();
 }
 
+/* ---------- 保存 ----------
+   コマは PNG にして IndexedDB に置く。ページを閉じても残る。
+   撮影ごとに1枚だけ書き込み、並び順は別の記録に持つ。
+   毎回まとめて書き直すと、コマが増えるほど遅くなるため。
+   どの段階で失敗しても撮影だけは続けられるように、全て黙って諦める作りにする。 */
+const DB_NAME = "sengadori", F_STORE = "frames", M_STORE = "meta";
+let db = null, saveTimer = null;
+
+function openDB(){
+  return new Promise(res=>{
+    if(!window.indexedDB) return res(null);
+    let rq;
+    try{ rq = indexedDB.open(DB_NAME, 1); }catch(e){ return res(null); }
+    rq.onupgradeneeded = ()=>{
+      const d = rq.result;
+      if(!d.objectStoreNames.contains(F_STORE)) d.createObjectStore(F_STORE, { keyPath:"id" });
+      if(!d.objectStoreNames.contains(M_STORE)) d.createObjectStore(M_STORE, { keyPath:"key" });
+    };
+    rq.onsuccess = ()=>res(rq.result);
+    rq.onerror   = ()=>res(null);
+    rq.onblocked = ()=>res(null);
+  });
+}
+function store(name, mode){ return db.transaction(name, mode).objectStore(name); }
+function get(name, key){
+  return new Promise(res=>{
+    try{ const r = store(name, "readonly").get(key);
+         r.onsuccess = ()=>res(r.result); r.onerror = ()=>res(null); }
+    catch(e){ res(null); }
+  });
+}
+function toBlob(canvas){
+  return new Promise(res=>{
+    try{ canvas.toBlob(b=>res(b), "image/png"); }catch(e){ res(null); }
+  });
+}
+async function saveFrame(f){
+  if(!db) return;
+  const png = await toBlob(f.raw);
+  if(!png) return;
+  try{ store(F_STORE, "readwrite").put({ id:f.id, png }); }catch(e){}
+}
+function dropFrame(id){
+  if(!db) return;
+  try{ store(F_STORE, "readwrite").delete(id); }catch(e){}
+}
+/* 設定と並び順。続けて動かすと重いので少し待ってから1回だけ書く。 */
+function saveState(){
+  if(!db) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    try{
+      store(M_STORE, "readwrite").put({
+        key:"state", order: frames.map(f=>f.id), nextId, fps, aspect,
+        bin: JSON.parse(JSON.stringify(bin))
+      });
+    }catch(e){}
+  }, 250);
+}
+async function clearSaved(){
+  if(!db) return;
+  try{ store(F_STORE, "readwrite").clear(); store(M_STORE, "readwrite").clear(); }catch(e){}
+}
+async function blobToCanvas(png){
+  const draw = img =>{
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    c.getContext("2d").drawImage(img, 0, 0);
+    return c;
+  };
+  try{
+    const bmp = await createImageBitmap(png);
+    const c = draw(bmp);
+    if(bmp.close) bmp.close();
+    return c;
+  }catch(e){
+    // createImageBitmap が無い・使えない場合の逃げ道
+    return await new Promise(res=>{
+      const url = URL.createObjectURL(png), im = new Image();
+      im.onload  = ()=>{ const c = draw(im); URL.revokeObjectURL(url); res(c); };
+      im.onerror = ()=>{ URL.revokeObjectURL(url); res(null); };
+      im.src = url;
+    });
+  }
+}
+async function loadSaved(){
+  db = await openDB();
+  if(!db) return;
+  const st = await get(M_STORE, "state");
+  if(!st) return;
+  if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
+  if(st.aspect){ aspect = st.aspect; markSeg("#aspSeg", aspect); layout(); }
+  if(st.bin){
+    Object.assign(bin, st.bin);
+    $("#binOn").checked = !!bin.on;
+    markSeg("#binMode", bin.mode);
+    syncBinSliders();
+  }
+  nextId = st.nextId || 1;
+  if(!st.order || !st.order.length){ refresh(); return; }
+  for(const id of st.order){
+    const rec = await get(F_STORE, id);
+    if(!rec || !rec.png) continue;
+    const raw = await blobToCanvas(rec.png);
+    if(raw) frames.push({ id, raw, disp: processed(raw) });
+  }
+  rebuildStrip(); refresh();
+}
+
 /* ---------- 配線 ---------- */
 $("#shutter").onclick = capture;
 $("#undo").onclick = undo;
@@ -483,7 +638,19 @@ $("#play").onclick = togglePlay;
 $("#prev").onclick = ()=>step(-1);
 $("#next").onclick = ()=>step(1);
 $("#live").onclick = ()=>{ selected=null; refresh(); };
+$("#clearAll").onclick = async ()=>{
+  if(playing) return;
+  if(!frames.length) return;
+  if(!confirm("撮ったコマを全部消します。戻せません。")) return;
+  frames = []; selected = null; nextId = 1;
+  await clearSaved();
+  rebuildStrip(); refresh();
+};
 
+function markSeg(id, v){
+  $(id).querySelectorAll("button").forEach(b=>
+    b.classList.toggle("on", b.dataset.v === String(v)));
+}
 function seg(id, fn){
   $(id).querySelectorAll("button").forEach(b=>{
     b.onclick = ()=>{
@@ -492,16 +659,21 @@ function seg(id, fn){
     };
   });
 }
-seg("#fpsSeg", v=>{ fps = +v; if(playing){ togglePlay(); togglePlay(); } });
-seg("#aspSeg", v=>{ aspect = v; layout(); refresh(); });
+seg("#fpsSeg", v=>{ fps = +v; saveState(); if(playing){ togglePlay(); togglePlay(); } });
+seg("#aspSeg", v=>{ aspect = v; saveState(); layout(); refresh(); });
 
 $("#onionOn").onchange = ()=>drawOnion();
 $("#onionOp").oninput = e=>{ $("#onionVal").textContent = e.target.value+"%"; drawOnion(); };
-const BIN_DEFAULT = { mode:"adaptive", th:60, radius:12, black:0, white:100, blur:1, dilate:0, strength:100 };
+const BIN_DEFAULT = { mode:"auto", k:0.20, th:60, radius:12, black:0, white:100, blur:1, dilate:0, strength:100 };
 
 function syncBinUI(){
   $("#binOpts").hidden = !bin.on;
+  const auto = bin.mode === "auto";
+  // おまかせの時は強さ一本だけ。迷う余地を作らない。
+  $("#rowAutoK").style.display = auto ? "" : "none";
+  $("#binManual").style.display = auto ? "none" : "";
   $("#rowRad").style.display = bin.mode === "adaptive" ? "" : "none";
+  $("#binKV").textContent = sensFromK(bin.k);
   $("#binThV").textContent = Math.round(bin.th*100);
   $("#binRadV").textContent = bin.radius;
   $("#binBkV").textContent = Math.round(bin.black*100);
@@ -510,9 +682,23 @@ function syncBinUI(){
   $("#binDlV").textContent = bin.dilate;
   $("#binStV").textContent = Math.round(bin.strength*100) + "%";
 }
-function applyBin(){ syncBinUI(); if(bin.on) reprocessAll(); }
+function applyBin(){ syncBinUI(); saveState(); if(bin.on) reprocessAll(); }
 
-$("#binOn").onchange = e=>{ bin.on = e.target.checked; syncBinUI(); reprocessAll(); };
+/* 保存から戻したとき、スライダーの位置を値に合わせる */
+function syncBinSliders(){
+  $("#binK").value  = sensFromK(bin.k);
+  $("#binTh").value = Math.round(bin.th*100);
+  $("#binRad").value = bin.radius;
+  $("#binBk").value = Math.round(bin.black*100);
+  $("#binWh").value = Math.round(bin.white*100);
+  $("#binBl").value = bin.blur;
+  $("#binDl").value = bin.dilate;
+  $("#binSt").value = Math.round(bin.strength*100);
+  syncBinUI();
+}
+
+$("#binOn").onchange = e=>{ bin.on = e.target.checked; syncBinUI(); saveState(); reprocessAll(); };
+$("#binK").oninput   = e=>{ bin.k = kFromSens(+e.target.value); applyBin(); };
 seg("#binMode", v=>{ bin.mode = v; applyBin(); });
 $("#binTh").oninput  = e=>{ bin.th = +e.target.value/100; applyBin(); };
 $("#binRad").oninput = e=>{ bin.radius = +e.target.value; applyBin(); };
@@ -523,10 +709,10 @@ $("#binDl").oninput  = e=>{ bin.dilate = +e.target.value; applyBin(); };
 $("#binSt").oninput  = e=>{ bin.strength = +e.target.value/100; applyBin(); };
 $("#binReset").onclick = ()=>{
   const D = BIN_DEFAULT;
-  bin.mode = D.mode; bin.th = D.th/100; bin.radius = D.radius;
+  bin.mode = D.mode; bin.k = D.k; bin.th = D.th/100; bin.radius = D.radius;
   bin.black = D.black/100; bin.white = D.white/100;
   bin.blur = D.blur; bin.dilate = D.dilate; bin.strength = D.strength/100;
-  $("#binTh").value = D.th; $("#binRad").value = D.radius;
+  $("#binK").value = sensFromK(D.k); $("#binTh").value = D.th; $("#binRad").value = D.radius;
   $("#binBk").value = D.black; $("#binWh").value = D.white;
   $("#binBl").value = D.blur; $("#binDl").value = D.dilate; $("#binSt").value = D.strength;
   $("#binMode").querySelectorAll("button").forEach(b=>
@@ -551,6 +737,7 @@ syncBinUI();
 cam.addEventListener("loadedmetadata", layout);
 startCamera();
 refresh();
+loadSaved();
 </script>
 </body>
 </html>
