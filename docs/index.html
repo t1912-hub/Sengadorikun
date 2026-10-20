@@ -78,6 +78,9 @@
   /* コマの長さを選ぶ重ね画面 */
   #holdPick{ position:fixed; inset:0; background:rgba(0,0,0,.6);
     display:flex; align-items:center; justify-content:center; z-index:50; }
+  /* id 指定の display:flex はブラウザ標準の [hidden]{display:none} より強い。
+     これを書かないと hidden が効かず、空の重ね画面が出たまま操作を奪う。 */
+  #holdPick[hidden]{ display:none; }
   #holdPick .card{ background:var(--panel); border:1px solid var(--line);
     border-radius:12px; padding:16px 18px; min-width:260px; }
   #holdPick .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
