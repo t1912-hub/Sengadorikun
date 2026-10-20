@@ -108,7 +108,7 @@
 <body>
 <div id="holdPick" hidden>
   <div class="card">
-    <span class="lbl" style="margin-top:0">このコマの長さ</span>
+    <span class="lbl" style="margin-top:0" id="holdTitle">このコマの長さ</span>
     <div class="grid" id="holdGrid"></div>
     <div class="foot">
       <button id="holdAll">全部に適用</button>
@@ -585,15 +585,21 @@ function rebuildStrip(){
       b.className = "badge"; b.textContent = "×" + f.hold;
       cell.appendChild(b);
     }
-    // 軽く触れば選択、長押しで長さを変える
-    let hold = null, moved = false;
+    // 軽く触れば選択、長押しで長さを変える。
+    // 指は触れている間ずっと微妙に揺れるので、少しの動きでは取り消さない。
+    // 大きく動いたときだけ「ストリップを横に送る操作」とみなす。
+    let hold = null, sx = 0, sy = 0;
+    const SLOP = 12;
     const clear = ()=>{ clearTimeout(hold); hold = null; };
     cell.addEventListener("pointerdown", e=>{
       if(playing) return;
-      moved = false;
-      hold = setTimeout(()=>{ hold = null; moved = true; openHold(i); }, 500);
+      sx = e.clientX; sy = e.clientY;
+      hold = setTimeout(()=>{ hold = null; openHold(i); }, 450);
     });
-    cell.addEventListener("pointermove", ()=>{ if(hold) clear(); });
+    cell.addEventListener("pointermove", e=>{
+      if(!hold) return;
+      if(Math.abs(e.clientX - sx) > SLOP || Math.abs(e.clientY - sy) > SLOP) clear();
+    });
     cell.addEventListener("pointerup", ()=>{
       if(playing) return;
       if(hold){ clear(); selected = (selected===i) ? null : i; refresh(); }
@@ -882,9 +888,13 @@ function openHold(i){
   const cur = Math.max(1, frames[i].hold || 1);
   const grid = $("#holdGrid");
   grid.innerHTML = "";
+  // 何秒止まるかは fps で変わる。暗算させずにそのまま見せる。
+  $("#holdTitle").textContent = "このコマの長さ（" + fps + "fps）";
   HOLDS.forEach(n=>{
     const b = document.createElement("button");
-    b.textContent = n + "コマ";
+    const sec = n / fps;
+    b.innerHTML = n + "コマ<br><small style=\"opacity:.65;font-size:10px\">"
+                + (sec < 1 ? sec.toFixed(2) : sec.toFixed(1)) + "秒</small>";
     if(n === cur) b.classList.add("on");
     b.onclick = ()=>{ setHold(i, n); closeHold(); };
     grid.appendChild(b);
