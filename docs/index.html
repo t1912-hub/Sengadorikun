@@ -8,6 +8,7 @@
 <title>線画撮りくん</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-1024.png">
+<link rel="icon" href="icon-192.png">
 <meta name="theme-color" content="#0d0d0f">
 <style>
   :root{
@@ -27,6 +28,7 @@
   #frameBox.bounded{ outline:1px solid rgba(214,140,69,.7); }
   #cam,#still,#onion{ position:absolute; inset:0; width:100%; height:100%; display:block; }
   #cam{ object-fit:cover; }
+  #frameBox.panning{ cursor:grabbing; }
   #cam.contain{ object-fit:contain; }
   #still,#onion{ object-fit:contain; pointer-events:none; }
   #still{ display:none; background:#000; }
@@ -73,6 +75,24 @@
     font-variant-numeric:tabular-nums; margin:4px 0; }
   .note{ color:var(--dim); font-size:10px; line-height:1.5; margin-top:10px; }
 
+  /* コマの長さを選ぶ重ね画面 */
+  #holdPick{ position:fixed; inset:0; background:rgba(0,0,0,.6);
+    display:flex; align-items:center; justify-content:center; z-index:50; }
+  #holdPick .card{ background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:16px 18px; min-width:260px; }
+  #holdPick .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
+  #holdPick .grid button{ padding:11px 0; background:#2a2a2e; color:var(--ink);
+    border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  #holdPick .grid button.on{ background:var(--amber); color:#141414; }
+  #holdPick .foot{ display:flex; gap:8px; margin-top:10px; }
+  #holdPick .foot button{ flex:1; padding:9px 0; background:transparent;
+    color:var(--dim); border:1px solid var(--line); border-radius:8px; font-size:12px; }
+  #strip .hold{ position:absolute; }
+  #strip .cell{ position:relative; flex:0 0 auto; }
+  #strip .cell .badge{ position:absolute; right:3px; bottom:3px; background:var(--amber);
+    color:#141414; font-size:10px; font-weight:700; border-radius:7px; padding:1px 5px;
+    pointer-events:none; }
+
   /* 横位置：操作パネルを右へ */
   @media (orientation:landscape){
     #app{ flex-direction:row; }
@@ -86,6 +106,17 @@
 </style>
 </head>
 <body>
+<div id="holdPick" hidden>
+  <div class="card">
+    <span class="lbl" style="margin-top:0">このコマの長さ</span>
+    <div class="grid" id="holdGrid"></div>
+    <div class="foot">
+      <button id="holdAll">全部に適用</button>
+      <button id="holdClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <div id="app">
   <div id="left">
     <div id="stage">
@@ -127,6 +158,14 @@
       <button data-v="wide" class="on">16:9 横</button>
       <button data-v="tall">9:16 縦</button>
     </div>
+
+    <span class="lbl">ズーム（用紙を枠に合わせる）</span>
+    <div class="row" id="zoomRow">
+      <input type="range" id="zoom" min="100" max="400" value="100">
+      <span class="val" id="zoomVal">1.0×</span>
+      <button class="icon" id="zoomReset" style="width:auto;padding:0 8px;font-size:11px">戻す</button>
+    </div>
+    <p class="note" id="zoomHint" style="margin:0 0 2px">拡大したら、画面を指でなぞって位置を合わせます。</p>
 
     <span class="lbl">オニオンスキン</span>
     <div class="row">
@@ -175,6 +214,25 @@
       <span class="val" id="safetyVal">90%</span>
     </div>
 
+    <span class="lbl">書き出し</span>
+    <div class="row">
+      <label>名前</label>
+      <input type="text" id="outName" value="pencil-test"
+             style="flex:1;min-width:0;background:#2a2a2e;color:var(--ink);
+                    border:1px solid var(--line);border-radius:7px;padding:6px 8px;
+                    font-family:inherit;font-size:12px">
+    </div>
+    <div class="seg" id="sizeSeg" style="margin:2px 0 8px">
+      <button data-v="fhd" class="on">FHD</button>
+      <button data-v="hd">HD</button>
+      <button data-v="raw">そのまま</button>
+    </div>
+    <div class="row">
+      <button class="icon" id="exportBtn"
+              style="width:100%;height:40px;font-size:13px">動画で書き出す</button>
+    </div>
+    <div class="count" id="exportMsg"></div>
+
     <div class="row" style="justify-content:center;margin-top:14px">
       <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">全部消す</button>
     </div>
@@ -182,6 +240,8 @@
     <p class="note">
       space 撮影 / return 再生 / delete 直前を削除<br>
       ← → コマ送り / esc ライブに戻る<br><br>
+      コマを長押しすると長さを変えられます（2コマ打ちなど）。<br>
+      書き出しは実時間で録るので、作品と同じ長さの時間がかかります。<br>
       ホーム画面に追加すると全画面で使えます。<br>
       撮ったコマは端末に残るので、閉じても続けられます。
     </p>
@@ -197,8 +257,17 @@ const cam=$("#cam"), still=$("#still"), onion=$("#onion"), guide=$("#guide"),
 const PREVIEW_EDGE = 1024;         // メモリ上に持つ画像の長辺（細い鉛筆線を残すため）
 let frames = [];                    // { raw:canvas, disp:canvas }
 let selected = null;                // null ならライブ
-let playing = false, playIndex = 0, timer = null;
+let playing = false, playPos = 0, timer = null;
+let playSeq = [];                   // 長さを展開したコマ番号の並び
+const HOLDS = [1,2,3,4,6,8,12,24,48];
+let holdTarget = null;              // 長さを選んでいる相手
 let fps = 12, aspect = "wide";
+/* デジタルズーム。カメラの光学ズームは iOS Safari が扱えないため、
+   撮る範囲を切り出して拡大する。px,py は余白のどこを使うか（0〜1）。 */
+const view = { zoom:1, px:0.5, py:0.5 };
+let outSize = "fhd";                // 書き出しの大きさ
+/* 長辺をこの値に合わせる。縦長でも横長でも同じ扱いにできる。 */
+const OUT_EDGE = { fhd:1920, hd:1280, raw:null };
 let nextId = 1;                     // コマに振る通し番号（保存の目印）
 const bin = { on:false, mode:"auto", th:0.60, radius:12,
               black:0, white:1, blur:1, dilate:0, strength:1, k:0.20 };
@@ -234,6 +303,21 @@ async function startCamera(){
   }
 }
 
+/* ---------- ズーム ----------
+   拡大率 z、原点を (px,py) にして scale すると、
+   見える範囲は元の 1/z で、左端は px*(1-1/z) の位置になる。
+   撮影側の切り出しもこの式に揃えてあるので、見た目と撮れる絵が一致する。 */
+function applyView(){
+  const bounded = RATIO[aspect] != null;
+  const z = bounded ? view.zoom : 1;
+  cam.style.transformOrigin = (view.px*100) + "% " + (view.py*100) + "%";
+  cam.style.transform = z > 1 ? "scale(" + z + ")" : "";
+  // 比率を決めていないと切り出し範囲と画面がずれるので、その時は使わせない
+  $("#zoomRow").style.display = bounded ? "" : "none";
+  $("#zoomHint").style.display = bounded ? "" : "none";
+  $("#zoomVal").textContent = z.toFixed(1) + "×";
+}
+
 /* ---------- レイアウト ---------- */
 function layout(){
   const r = RATIO[aspect];
@@ -251,6 +335,7 @@ function layout(){
     box.style.width = "100%";
     box.style.height = "100%";
   }
+  applyView();
   drawGuide();
   drawOnion();
 }
@@ -283,6 +368,13 @@ function cropAndScale(){
   if(r){
     if(vw/vh > r){ sw = vh*r; sx = (vw-sw)/2; }
     else{ sh = vw/r; sy = (vh-sh)/2; }
+    // ライブ映像の scale と同じ範囲を切り出す
+    if(view.zoom > 1){
+      const zw = sw / view.zoom, zh = sh / view.zoom;
+      sx += view.px * (sw - zw);
+      sy += view.py * (sh - zh);
+      sw = zw; sh = zh;
+    }
   }
   const scale = Math.min(1, PREVIEW_EDGE / Math.max(sw, sh));
   const c = document.createElement("canvas");
@@ -427,8 +519,16 @@ function fit(canvas, target){
   g.drawImage(canvas, (target.width-w)/2, (target.height-h)/2, w, h);
 }
 
+/* 長さのぶん同じコマを並べた番号列。再生と書き出しはこれをたどる。 */
+function expanded(){
+  const out = [];
+  frames.forEach((f,i)=>{ const n = Math.max(1, f.hold||1); for(let k=0;k<n;k++) out.push(i); });
+  return out;
+}
+function totalLength(){ return frames.reduce((a,f)=>a + Math.max(1,f.hold||1), 0); }
+
 function currentIndex(){
-  if(playing) return frames.length ? playIndex : null;
+  if(playing) return playSeq.length ? playSeq[Math.min(playPos, playSeq.length-1)] : null;
   return selected;
 }
 
@@ -449,13 +549,17 @@ function drawOnion(){
 function refresh(){
   showStill();
   drawOnion();
-  $("#count").textContent = "コマ数 " + frames.length;
+  const tot = totalLength();
+  $("#count").textContent = frames.length
+    ? "コマ数 " + frames.length + "（長さ " + tot + "コマ / " + (tot/fps).toFixed(1) + "秒）"
+    : "コマ数 0";
   $("#undo").disabled = !frames.length || playing;
   $("#play").disabled = frames.length < 2;
   $("#play").textContent = playing ? "■" : "▶";
   $("#prev").disabled = $("#next").disabled = !frames.length || playing;
+  $("#exportBtn").disabled = exporting || playing || totalLength() < 2;
   $("#live").disabled = selected===null;
-  [...strip.querySelectorAll("canvas")].forEach((c,i)=>
+  [...strip.querySelectorAll(".cell canvas")].forEach((c,i)=>
     c.classList.toggle("sel", currentIndex()===i));
 }
 
@@ -467,15 +571,36 @@ function rebuildStrip(){
     return;
   }
   frames.forEach((f,i)=>{
+    const cell = document.createElement("div");
+    cell.className = "cell";
     const t = document.createElement("canvas");
     t.width = t.height = 100;
     const g = t.getContext("2d");
     const s = Math.max(100/f.disp.width, 100/f.disp.height);
     const w = f.disp.width*s, h = f.disp.height*s;
     g.drawImage(f.disp, (100-w)/2, (100-h)/2, w, h);
-    t.onclick = ()=>{ if(playing) return;
-      selected = (selected===i) ? null : i; refresh(); };
-    strip.appendChild(t);
+    cell.appendChild(t);
+    if((f.hold||1) > 1){
+      const b = document.createElement("span");
+      b.className = "badge"; b.textContent = "×" + f.hold;
+      cell.appendChild(b);
+    }
+    // 軽く触れば選択、長押しで長さを変える
+    let hold = null, moved = false;
+    const clear = ()=>{ clearTimeout(hold); hold = null; };
+    cell.addEventListener("pointerdown", e=>{
+      if(playing) return;
+      moved = false;
+      hold = setTimeout(()=>{ hold = null; moved = true; openHold(i); }, 500);
+    });
+    cell.addEventListener("pointermove", ()=>{ if(hold) clear(); });
+    cell.addEventListener("pointerup", ()=>{
+      if(playing) return;
+      if(hold){ clear(); selected = (selected===i) ? null : i; refresh(); }
+    });
+    cell.addEventListener("pointercancel", clear);
+    cell.addEventListener("contextmenu", e=>e.preventDefault());
+    strip.appendChild(cell);
   });
   strip.scrollLeft = strip.scrollWidth;
 }
@@ -485,7 +610,7 @@ function capture(){
   if(playing) return;
   const raw = cropAndScale();
   if(!raw) return;
-  const f = { id: nextId++, raw, disp: processed(raw) };
+  const f = { id: nextId++, raw, disp: processed(raw), hold: 1 };
   frames.push(f);
   selected = null;
   rebuildStrip(); refresh();
@@ -513,9 +638,10 @@ function togglePlay(){
   if(playing){ clearInterval(timer); timer=null; playing=false; }
   else{
     if(frames.length < 2) return;
-    playing = true; selected = null; playIndex = 0;
+    playing = true; selected = null;
+    playSeq = expanded(); playPos = 0;
     timer = setInterval(()=>{
-      playIndex = (playIndex + 1) % frames.length;
+      playPos = (playPos + 1) % playSeq.length;
       refresh();
     }, 1000/fps);
   }
@@ -575,7 +701,10 @@ function saveState(){
   saveTimer = setTimeout(()=>{
     try{
       store(M_STORE, "readwrite").put({
-        key:"state", order: frames.map(f=>f.id), nextId, fps, aspect,
+        key:"state", order: frames.map(f=>f.id),
+        holds: frames.map(f=>Math.max(1, f.hold||1)), nextId, fps, aspect,
+        outName: $("#outName").value, outSize,
+        view: { zoom: view.zoom, px: view.px, py: view.py },
         bin: JSON.parse(JSON.stringify(bin))
       });
     }catch(e){}
@@ -613,7 +742,14 @@ async function loadSaved(){
   const st = await get(M_STORE, "state");
   if(!st) return;
   if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
-  if(st.aspect){ aspect = st.aspect; markSeg("#aspSeg", aspect); layout(); }
+  if(st.aspect){ aspect = st.aspect; markSeg("#aspSeg", aspect); }
+  if(st.outName) $("#outName").value = st.outName;
+  if(st.outSize){ outSize = st.outSize; markSeg("#sizeSeg", outSize); }
+  if(st.view){
+    Object.assign(view, st.view);
+    $("#zoom").value = Math.round(view.zoom * 100);
+  }
+  layout();
   if(st.bin){
     Object.assign(bin, st.bin);
     $("#binOn").checked = !!bin.on;
@@ -622,13 +758,144 @@ async function loadSaved(){
   }
   nextId = st.nextId || 1;
   if(!st.order || !st.order.length){ refresh(); return; }
-  for(const id of st.order){
+  for(let k = 0; k < st.order.length; k++){
+    const id = st.order[k];
     const rec = await get(F_STORE, id);
     if(!rec || !rec.png) continue;
     const raw = await blobToCanvas(rec.png);
-    if(raw) frames.push({ id, raw, disp: processed(raw) });
+    if(raw) frames.push({ id, raw, disp: processed(raw),
+                          hold: (st.holds && st.holds[k]) || 1 });
   }
   rebuildStrip(); refresh();
+}
+
+/* ---------- 書き出し ----------
+   キャンバスの流れを MediaRecorder に録らせる。
+   captureStream(0) にすると requestFrame() を呼んだ時だけ1枚流れるので、
+   コマ送りの間隔を自分で決められる。録るのは実時間なので、
+   書き出しには作品と同じ長さの時間がかかる。
+   形式は端末任せ。iPad の Safari は MP4、Android の Chrome は WebM になる。 */
+const OUT_TYPES = ["video/mp4;codecs=avc1.42E01E", "video/mp4",
+                   "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+function pickOutType(){
+  if(!window.MediaRecorder || !MediaRecorder.isTypeSupported) return null;
+  return OUT_TYPES.find(t=>{ try{ return MediaRecorder.isTypeSupported(t); }catch(e){ return false; } }) || null;
+}
+let exporting = false;
+
+function saveBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 20000);
+}
+
+async function exportMovie(){
+  if(exporting || playing) return;
+  const seq = expanded();
+  if(seq.length < 2){ $("#exportMsg").textContent = "2コマ以上必要です。"; return; }
+  const type = pickOutType();
+  if(!type){
+    $("#exportMsg").textContent = "この端末では動画の書き出しができません。";
+    return;
+  }
+  exporting = true;
+  $("#exportBtn").disabled = true;
+  const base = frames[seq[0]].disp;
+  // 長辺を合わせ、縦横の比は保つ。H.264 は辺が偶数でないと扱えない器があるので丸める。
+  const edge = OUT_EDGE[outSize];
+  const k = edge ? edge / Math.max(base.width, base.height) : 1;
+  const even = v => Math.max(2, Math.round(v / 2) * 2);
+  const W = even(base.width * k), H = even(base.height * k);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  // 線画は平らな面が多いので、拡大は滑らかに伸ばしたほうが見やすい
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  let stream, rec;
+  try{
+    stream = c.captureStream(0);
+    const bits = Math.min(20000000, Math.max(4000000, Math.round(W*H*fps*0.15)));
+    rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: bits });
+  }catch(e){
+    $("#exportMsg").textContent = "書き出しを始められませんでした（" + e.name + "）。";
+    exporting = false; $("#exportBtn").disabled = false;
+    return;
+  }
+  const track = stream.getVideoTracks()[0];
+  const ask = ()=>{
+    if(track && track.requestFrame) track.requestFrame();
+    else if(stream.requestFrame) stream.requestFrame();
+  };
+  const chunks = [];
+  rec.ondataavailable = e=>{ if(e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r=>{ rec.onstop = r; });
+  rec.start();
+  const wait = ms => new Promise(r=>setTimeout(r, ms));
+  const step = 1000 / fps;
+  const put = i =>{
+    const img = frames[seq[i]].disp;
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+    const sc = Math.min(W/img.width, H/img.height);
+    const w = img.width*sc, h = img.height*sc;
+    g.drawImage(img, (W-w)/2, (H-h)/2, w, h);
+    ask();
+  };
+  // setTimeout は指定より遅れて返るので、1コマずつ待つと尺が狂っていく。
+  // 開始時刻からの絶対位置を目標にして、遅れを次のコマで吸収する。
+  const t0 = performance.now();
+  for(let i = 0; i < seq.length; i++){
+    put(i);
+    $("#exportMsg").textContent = "書き出し中 " + (i+1) + " / " + seq.length;
+    const d = t0 + (i+1)*step - performance.now();
+    if(d > 0) await wait(d);
+  }
+  // 最後のコマにも持ち時間を与える。MediaRecorder は次の絵が来た時刻で
+  // 前の絵の長さを決めるため、もう1枚流さないと最後だけ短くなる。
+  // 1コマ分まるごと足すと尺が約5%長くなったので、半コマで締める。
+  put(seq.length - 1);
+  const d = t0 + (seq.length + 0.5)*step - performance.now();
+  if(d > 0) await wait(d);
+  rec.stop();
+  await stopped;
+  if(track) track.stop();
+  const ext = type.indexOf("video/mp4") === 0 ? "mp4" : "webm";
+  const blob = new Blob(chunks, { type });
+  if(!blob.size){
+    $("#exportMsg").textContent = "書き出しに失敗しました（中身が空）。";
+  }else{
+    const raw = ($("#outName").value || "pencil-test").trim().replace(/[\\/:*?"<>|]/g, "_");
+    saveBlob(blob, (raw || "pencil-test") + "." + ext);
+    $("#exportMsg").textContent = ext.toUpperCase() + " " + W + "×" + H
+      + " で保存しました（" + Math.round(blob.size/1024) + "KB）。";
+  }
+  exporting = false;
+  $("#exportBtn").disabled = false;
+}
+
+/* ---------- コマの長さ ---------- */
+function openHold(i){
+  holdTarget = i;
+  const cur = Math.max(1, frames[i].hold || 1);
+  const grid = $("#holdGrid");
+  grid.innerHTML = "";
+  HOLDS.forEach(n=>{
+    const b = document.createElement("button");
+    b.textContent = n + "コマ";
+    if(n === cur) b.classList.add("on");
+    b.onclick = ()=>{ setHold(i, n); closeHold(); };
+    grid.appendChild(b);
+  });
+  $("#holdPick").hidden = false;
+}
+function closeHold(){ $("#holdPick").hidden = true; holdTarget = null; }
+function setHold(i, n){
+  if(!frames[i]) return;
+  frames[i].hold = Math.max(1, Math.min(48, n));
+  rebuildStrip(); refresh(); saveState();
 }
 
 /* ---------- 配線 ---------- */
@@ -638,6 +905,18 @@ $("#play").onclick = togglePlay;
 $("#prev").onclick = ()=>step(-1);
 $("#next").onclick = ()=>step(1);
 $("#live").onclick = ()=>{ selected=null; refresh(); };
+$("#exportBtn").onclick = exportMovie;
+$("#outName").onchange = saveState;
+$("#holdClose").onclick = closeHold;
+$("#holdAll").onclick = ()=>{
+  // いま選んでいるコマの長さを全部に広げる。2コマ打ちで通したい時に使う。
+  if(holdTarget === null) return;
+  const n = Math.max(1, frames[holdTarget].hold || 1);
+  frames.forEach(f=>f.hold = n);
+  rebuildStrip(); refresh(); saveState(); closeHold();
+};
+$("#holdPick").onclick = e=>{ if(e.target.id === "holdPick") closeHold(); };
+
 $("#clearAll").onclick = async ()=>{
   if(playing) return;
   if(!frames.length) return;
@@ -661,6 +940,7 @@ function seg(id, fn){
 }
 seg("#fpsSeg", v=>{ fps = +v; saveState(); if(playing){ togglePlay(); togglePlay(); } });
 seg("#aspSeg", v=>{ aspect = v; saveState(); layout(); refresh(); });
+seg("#sizeSeg", v=>{ outSize = v; saveState(); });
 
 $("#onionOn").onchange = ()=>drawOnion();
 $("#onionOp").oninput = e=>{ $("#onionVal").textContent = e.target.value+"%"; drawOnion(); };
@@ -719,6 +999,43 @@ $("#binReset").onclick = ()=>{
     b.classList.toggle("on", b.dataset.v === D.mode));
   applyBin();
 };
+$("#zoom").oninput = e=>{
+  view.zoom = +e.target.value / 100;
+  if(view.zoom === 1){ view.px = view.py = 0.5; }
+  applyView(); saveState();
+};
+$("#zoomReset").onclick = ()=>{
+  view.zoom = 1; view.px = view.py = 0.5;
+  $("#zoom").value = 100; applyView(); saveState();
+};
+
+/* 拡大中は画面をなぞって位置を合わせる */
+(function panByDrag(){
+  let active = false, lastX = 0, lastY = 0;
+  box.addEventListener("pointerdown", e=>{
+    if(view.zoom <= 1 || RATIO[aspect] == null) return;
+    active = true; lastX = e.clientX; lastY = e.clientY;
+    box.classList.add("panning");
+    box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener("pointermove", e=>{
+    if(!active) return;
+    const w = box.clientWidth, h = box.clientHeight, z = view.zoom;
+    // 動かせる幅は、拡大して画面からはみ出した分だけ
+    const spanX = w * (z - 1), spanY = h * (z - 1);
+    if(spanX > 0) view.px = Math.min(1, Math.max(0, view.px - (e.clientX - lastX) / spanX));
+    if(spanY > 0) view.py = Math.min(1, Math.max(0, view.py - (e.clientY - lastY) / spanY));
+    lastX = e.clientX; lastY = e.clientY;
+    applyView();
+  });
+  const end = e=>{
+    if(!active) return;
+    active = false; box.classList.remove("panning"); saveState();
+  };
+  box.addEventListener("pointerup", end);
+  box.addEventListener("pointercancel", end);
+})();
+
 $("#guideOn").onchange = drawGuide;
 $("#safety").oninput = e=>{ $("#safetyVal").textContent = e.target.value+"%"; drawGuide(); };
 
@@ -734,6 +1051,7 @@ window.addEventListener("keydown", e=>{
 });
 
 syncBinUI();
+applyView();
 cam.addEventListener("loadedmetadata", layout);
 startCamera();
 refresh();
