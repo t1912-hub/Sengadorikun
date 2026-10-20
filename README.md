@@ -4,7 +4,7 @@
 東京工芸大学での授業・演習で使うために作っています。
 
 **ブラウザ版はこちらから、インストールせずに使えます。**
-https://t1912-hub.github.io/penciltest_Sengadorikun/
+https://t1912-hub.github.io/Sengadorikun/
 
 ---
 
