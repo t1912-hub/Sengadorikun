@@ -160,6 +160,13 @@
       <button class="icon" id="next">▶</button>
     </div>
 
+    <span class="lbl">カメラ</span>
+    <div class="row" id="camRow" style="display:none">
+      <select id="camSel" style="flex:1;min-width:0;background:#2a2a2e;color:var(--ink);
+              border:1px solid var(--line);border-radius:7px;padding:6px 8px;
+              font-family:inherit;font-size:12px"></select>
+    </div>
+
     <span class="lbl">再生 fps</span>
     <div class="seg" id="fpsSeg">
       <button data-v="6">6</button><button data-v="8">8</button>
@@ -257,7 +264,8 @@
       コマを長押しすると長さを変えられます（2コマ打ちなど）。<br>
       書き出しは実時間で録るので、作品と同じ長さの時間がかかります。<br>
       ホーム画面に追加すると全画面で使えます。<br>
-      撮ったコマは端末に残るので、閉じても続けられます。
+      撮ったコマは端末に残るので、閉じても続けられます。<br><br>
+      <a href="rough/" style="color:var(--amber)">ラフガキちゃん（ペンでラフを描く）へ</a>
     </p>
   </div>
 </div>
@@ -296,23 +304,59 @@ const K_MIN = 0.03, K_MAX = 0.35;
 const kFromSens = v => K_MAX - (K_MAX - K_MIN) * (v / 100);
 const sensFromK = k => Math.round((K_MAX - k) / (K_MAX - K_MIN) * 100);
 
-/* ---------- カメラ ---------- */
-async function startCamera(){
+/* ---------- カメラ ----------
+   Mac では内蔵カメラが既定で選ばれてしまうので、繋いだカメラへ切り替えられるようにする。
+   カメラの名前は許可を出すまで空なので、開いてから一覧を作り直す。 */
+let camStream = null, camId = null;
+
+function stopCamera(){
+  if(!camStream) return;
+  camStream.getTracks().forEach(t=>t.stop());
+  camStream = null;
+}
+
+async function listCameras(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  let all = [];
+  try{ all = await navigator.mediaDevices.enumerateDevices(); }catch(e){ return; }
+  const cams = all.filter(d=>d.kind === "videoinput");
+  const sel = $("#camSel");
+  sel.innerHTML = "";
+  cams.forEach((d,i)=>{
+    const o = document.createElement("option");
+    o.value = d.deviceId;
+    o.textContent = d.label || ("カメラ " + (i+1));
+    sel.appendChild(o);
+  });
+  if(camId && cams.some(d=>d.deviceId === camId)) sel.value = camId;
+  // 1台しか無いなら選ばせる意味がない
+  $("#camRow").style.display = cams.length > 1 ? "" : "none";
+}
+
+async function startCamera(id){
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     msg.textContent = "このブラウザはカメラに対応していません。Safari で開いてください。";
     return;
   }
+  stopCamera();
+  const video = id
+    ? { deviceId:{ exact:id }, width:{ ideal:1920 }, height:{ ideal:1080 } }
+    : { facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 } };
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:"environment" },
-              width:{ ideal:1920 }, height:{ ideal:1080 } },
-      audio:false
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video, audio:false });
+    camStream = stream;
     cam.srcObject = stream;
     await cam.play();
+    const t = stream.getVideoTracks()[0];
+    camId = (t && t.getSettings && t.getSettings().deviceId) || id || null;
     msg.style.display = "none";
     layout();
+    await listCameras();
+    saveState();
   }catch(e){
+    // 前に使ったカメラが外れている場合は、既定のカメラでやり直す
+    if(id){ camId = null; return startCamera(null); }
+    msg.style.display = "";
     msg.textContent = "カメラを開けませんでした（" + e.name + "）。\n" +
       "https:// で開いているか、カメラの許可を確認してください。";
   }
@@ -745,7 +789,7 @@ function saveState(){
       store(M_STORE, "readwrite").put({
         key:"state", order: frames.map(f=>f.id),
         holds: frames.map(f=>Math.max(1, f.hold||1)), nextId, fps, aspect,
-        outName: $("#outName").value, outSize,
+        outName: $("#outName").value, outSize, camId,
         view: { zoom: view.zoom, px: view.px, py: view.py },
         bin: JSON.parse(JSON.stringify(bin))
       });
@@ -787,6 +831,7 @@ async function loadSaved(){
   if(st.aspect){ aspect = st.aspect; markSeg("#aspSeg", aspect); }
   if(st.outName) $("#outName").value = st.outName;
   if(st.outSize){ outSize = st.outSize; markSeg("#sizeSeg", outSize); }
+  if(st.camId && !camStream){ camId = st.camId; startCamera(camId); }
   if(st.view){
     Object.assign(view, st.view);
     $("#zoom").value = Math.round(view.zoom * 100);
@@ -1053,6 +1098,14 @@ $("#binReset").onclick = ()=>{
     b.classList.toggle("on", b.dataset.v === D.mode));
   applyBin();
 };
+$("#camSel").onchange = e=>{
+  // カメラが変わると画角も変わるので、ズームは等倍に戻す
+  view.zoom = 1; view.px = view.py = 0.5; $("#zoom").value = 100;
+  startCamera(e.target.value);
+};
+if(navigator.mediaDevices && navigator.mediaDevices.addEventListener)
+  navigator.mediaDevices.addEventListener("devicechange", listCameras);
+
 $("#zoom").oninput = e=>{
   view.zoom = +e.target.value / 100;
   if(view.zoom === 1){ view.px = view.py = 0.5; }
@@ -1107,7 +1160,7 @@ window.addEventListener("keydown", e=>{
 syncBinUI();
 applyView();
 cam.addEventListener("loadedmetadata", layout);
-startCamera();
+startCamera(null);
 refresh();
 loadSaved();
 </script>
