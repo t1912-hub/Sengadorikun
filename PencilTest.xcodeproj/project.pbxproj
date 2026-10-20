@@ -1,0 +1,494 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00000000000000000000000A /* FrameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* FrameStore.swift */; };
+		00000000000000000000000B /* MP4Exporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* MP4Exporter.swift */; };
+		00000000000000000000000C /* PencilTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000008 /* PencilTest.swift */; };
+		00000000000000000000000D /* FrameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* FrameStore.swift */; };
+		00000000000000000000000E /* MP4Exporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* MP4Exporter.swift */; };
+		00000000000000000000000F /* PencilTestApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000009 /* PencilTestApp.swift */; };
+		000000000000000000000025 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000024 /* CameraController.swift */; };
+		000000000000000000000028 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000026 /* Assets.xcassets */; };
+		000000000000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000027 /* Assets.xcassets */; };
+		000000000000000000000034 /* RoughFlipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000032 /* RoughFlipApp.swift */; };
+		000000000000000000000035 /* DrawingCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000033 /* DrawingCanvas.swift */; };
+		000000000000000000000036 /* FrameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* FrameStore.swift */; };
+		000000000000000000000037 /* MP4Exporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* MP4Exporter.swift */; };
+		000000000000000000000047 /* SequenceExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000046 /* SequenceExporter.swift */; };
+		000000000000000000000048 /* SequenceExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000046 /* SequenceExporter.swift */; };
+		000000000000000000000049 /* SequenceExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000046 /* SequenceExporter.swift */; };
+		00000000000000000000004B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000004A /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000004 /* PencilTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PencilTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000005 /* PencilTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PencilTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000006 /* FrameStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameStore.swift; sourceTree = "<group>"; };
+		000000000000000000000007 /* MP4Exporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Exporter.swift; sourceTree = "<group>"; };
+		000000000000000000000008 /* PencilTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilTest.swift; sourceTree = "<group>"; };
+		000000000000000000000009 /* PencilTestApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilTestApp.swift; sourceTree = "<group>"; };
+		000000000000000000000024 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		000000000000000000000026 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		000000000000000000000027 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		000000000000000000000032 /* RoughFlipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoughFlipApp.swift; sourceTree = "<group>"; };
+		000000000000000000000033 /* DrawingCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingCanvas.swift; sourceTree = "<group>"; };
+		00000000000000000000003A /* RoughFlip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoughFlip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000046 /* SequenceExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceExporter.swift; sourceTree = "<group>"; };
+		00000000000000000000004A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000016 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000019 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		00000000000000000000003C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000010 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000011 /* Shared */,
+				000000000000000000000012 /* macOS */,
+				000000000000000000000013 /* iOS */,
+				000000000000000000000038 /* RoughFlip */,
+				000000000000000000000014 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000011 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000006 /* FrameStore.swift */,
+				000000000000000000000007 /* MP4Exporter.swift */,
+				000000000000000000000046 /* SequenceExporter.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		000000000000000000000012 /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000008 /* PencilTest.swift */,
+				000000000000000000000026 /* Assets.xcassets */,
+			);
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		000000000000000000000013 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000009 /* PencilTestApp.swift */,
+				000000000000000000000024 /* CameraController.swift */,
+				000000000000000000000027 /* Assets.xcassets */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		000000000000000000000014 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000004 /* PencilTest.app */,
+				000000000000000000000005 /* PencilTest.app */,
+				00000000000000000000003A /* RoughFlip.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000038 /* RoughFlip */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000032 /* RoughFlipApp.swift */,
+				000000000000000000000033 /* DrawingCanvas.swift */,
+				00000000000000000000004A /* Assets.xcassets */,
+			);
+			path = RoughFlip;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000002 /* PencilTest-macOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00000000000000000000001C /* Build configuration list for PBXNativeTarget "PencilTest-macOS" */;
+			buildPhases = (
+				000000000000000000000015 /* Sources */,
+				000000000000000000000016 /* Frameworks */,
+				000000000000000000000017 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "PencilTest-macOS";
+			productName = PencilTest;
+			productReference = 000000000000000000000004 /* PencilTest.app */;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000003 /* PencilTest-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00000000000000000000001D /* Build configuration list for PBXNativeTarget "PencilTest-iOS" */;
+			buildPhases = (
+				000000000000000000000018 /* Sources */,
+				000000000000000000000019 /* Frameworks */,
+				00000000000000000000001A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "PencilTest-iOS";
+			productName = PencilTest;
+			productReference = 000000000000000000000005 /* PencilTest.app */;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000039 /* RoughFlip */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00000000000000000000003E /* Build configuration list for PBXNativeTarget "RoughFlip" */;
+			buildPhases = (
+				00000000000000000000003B /* Sources */,
+				00000000000000000000003C /* Frameworks */,
+				00000000000000000000003D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RoughFlip;
+			productName = RoughFlip;
+			productReference = 00000000000000000000003A /* RoughFlip.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					000000000000000000000002 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					000000000000000000000003 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = 00000000000000000000001B /* Build configuration list for PBXProject "PencilTest" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000010;
+			productRefGroup = 000000000000000000000014 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000002 /* PencilTest-macOS */,
+				000000000000000000000003 /* PencilTest-iOS */,
+				000000000000000000000039 /* RoughFlip */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000017 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000028 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		00000000000000000000001A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000029 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		00000000000000000000003D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000004B /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000015 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000000C /* PencilTest.swift in Sources */,
+				00000000000000000000000A /* FrameStore.swift in Sources */,
+				00000000000000000000000B /* MP4Exporter.swift in Sources */,
+				000000000000000000000048 /* SequenceExporter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000018 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000000F /* PencilTestApp.swift in Sources */,
+				000000000000000000000025 /* CameraController.swift in Sources */,
+				00000000000000000000000D /* FrameStore.swift in Sources */,
+				00000000000000000000000E /* MP4Exporter.swift in Sources */,
+				000000000000000000000047 /* SequenceExporter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		00000000000000000000003B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000034 /* RoughFlipApp.swift in Sources */,
+				000000000000000000000035 /* DrawingCanvas.swift in Sources */,
+				000000000000000000000036 /* FrameStore.swift in Sources */,
+				000000000000000000000037 /* MP4Exporter.swift in Sources */,
+				000000000000000000000049 /* SequenceExporter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		00000000000000000000001E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		00000000000000000000001F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		000000000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "線画撮りくん";
+				INFOPLIST_KEY_NSCameraUsageDescription = "動画用紙の作画チェック（コマ撮り）のためにカメラを使用します。";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.app;
+				PRODUCT_NAME = PencilTest;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		000000000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "線画撮りくん";
+				INFOPLIST_KEY_NSCameraUsageDescription = "動画用紙の作画チェック（コマ撮り）のためにカメラを使用します。";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.app;
+				PRODUCT_NAME = PencilTest;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		000000000000000000000022 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "線画撮りくん";
+				INFOPLIST_KEY_NSCameraUsageDescription = "動画用紙の作画チェック（コマ撮り）のためにカメラを使用します。";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.ios;
+				PRODUCT_NAME = PencilTest;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		000000000000000000000023 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "線画撮りくん";
+				INFOPLIST_KEY_NSCameraUsageDescription = "動画用紙の作画チェック（コマ撮り）のためにカメラを使用します。";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.ios;
+				PRODUCT_NAME = PencilTest;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		00000000000000000000003F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ラフガキちゃん";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.roughflip;
+				PRODUCT_NAME = RoughFlip;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		000000000000000000000040 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 52J74FC4FS;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ラフガキちゃん";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = studio.penciltest.roughflip;
+				PRODUCT_NAME = RoughFlip;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		00000000000000000000001B /* Build configuration list for PBXProject "PencilTest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000001E /* Debug */,
+				00000000000000000000001F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		00000000000000000000001C /* Build configuration list for PBXNativeTarget "PencilTest-macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000020 /* Debug */,
+				000000000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		00000000000000000000001D /* Build configuration list for PBXNativeTarget "PencilTest-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000022 /* Debug */,
+				000000000000000000000023 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		00000000000000000000003E /* Build configuration list for PBXNativeTarget "RoughFlip" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000003F /* Debug */,
+				000000000000000000000040 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}
