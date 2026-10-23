@@ -252,6 +252,10 @@
       <button class="icon" id="exportBtn"
               style="width:100%;height:40px;font-size:13px">動画で書き出す</button>
     </div>
+    <div class="row">
+      <button class="icon" id="pngBtn"
+              style="width:100%;height:36px;font-size:12px">PNG連番で書き出す</button>
+    </div>
     <div class="count" id="exportMsg"></div>
 
     <div class="row" style="justify-content:center;margin-top:14px">
@@ -262,7 +266,8 @@
       space 撮影 / return 再生 / delete 直前を削除<br>
       ← → コマ送り / esc ライブに戻る<br><br>
       コマを長押しすると長さを変えられます（2コマ打ちなど）。<br>
-      書き出しは実時間で録るので、作品と同じ長さの時間がかかります。<br>
+      動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
+      尺を正確にしたいときは PNG連番 を使ってください。<br>
       ホーム画面に追加すると全画面で使えます。<br>
       撮ったコマは端末に残るので、閉じても続けられます。<br><br>
       <a href="rough/" style="color:var(--amber)">ラフガキちゃん（ペンでラフを描く）へ</a>
@@ -270,6 +275,7 @@
   </div>
 </div>
 
+<script src="zip.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -622,6 +628,7 @@ function refresh(){
   $("#live").classList.toggle("back", onStill);
   $("#prev").disabled = $("#next").disabled = !frames.length || playing;
   $("#exportBtn").disabled = exporting || playing || totalLength() < 2;
+  $("#pngBtn").disabled = exporting || playing || !frames.length;
   $("#live").disabled = selected===null;
   [...strip.querySelectorAll(".cell canvas")].forEach((c,i)=>
     c.classList.toggle("sel", currentIndex()===i));
@@ -888,6 +895,58 @@ function saveBlob(blob, name){
   setTimeout(()=>URL.revokeObjectURL(a.href), 20000);
 }
 
+/* ZIP の中のファイル名は英数字に揃える。日本語のままでも macOS や
+   Windows は開けるが、編集ソフトや古い展開ツールが読めないことがある。
+   ZIP そのものの名前は使う人が付けたままにする。 */
+function asciiName(s){
+  const a = (s || "").replace(/[^A-Za-z0-9_-]/g, "");
+  return a || "frames";
+}
+
+/* PNG連番。動画と違って実時間で録る必要がないので、尺の誤差が出ない。
+   編集ソフトに読ませて正確な尺で扱いたいときはこちらを使う。 */
+async function exportPNGs(){
+  if(exporting || playing) return;
+  const seq = expanded();
+  if(!seq.length){ $("#exportMsg").textContent = "1コマ以上必要です。"; return; }
+  exporting = true; refresh();
+  const base = frames[seq[0]].disp;
+  const edge = OUT_EDGE[outSize];
+  const k = edge ? edge / Math.max(base.width, base.height) : 1;
+  const even = v => Math.max(2, Math.round(v / 2) * 2);
+  const W = even(base.width * k), H = even(base.height * k);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  const folder = asciiName($("#outName").value);
+  const digits = Math.max(4, String(seq.length).length);
+  const files = [];
+  for(let i = 0; i < seq.length; i++){
+    const img = frames[seq[i]].disp;
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+    const sc = Math.min(W/img.width, H/img.height);
+    const w = img.width*sc, h = img.height*sc;
+    g.drawImage(img, (W-w)/2, (H-h)/2, w, h);
+    const blob = await toBlob(c, "image/png");
+    if(blob) files.push({ name: folder + "/" + folder + "_" + zipPad(i+1, digits) + ".png", blob });
+    $("#exportMsg").textContent = "PNGを作っています " + (i+1) + " / " + seq.length;
+    await new Promise(r=>setTimeout(r, 0));
+  }
+  if(!files.length){
+    $("#exportMsg").textContent = "PNG を作れませんでした。";
+    exporting = false; refresh(); return;
+  }
+  const zip = await makeZip(files, (a,b)=>{
+    $("#exportMsg").textContent = "まとめています " + a + " / " + b;
+  });
+  const raw = ($("#outName").value || "pencil-test").trim().replace(/[\\/:*?"<>|]/g, "_");
+  saveBlob(zip, (raw || "pencil-test") + "_png.zip");
+  $("#exportMsg").textContent = "PNG " + files.length + "枚（" + W + "×" + H + "）を zip で保存しました（"
+    + (zip.size/1048576).toFixed(1) + "MB）。";
+  exporting = false; refresh();
+}
+
 async function exportMovie(){
   if(exporting || playing) return;
   const seq = expanded();
@@ -1005,6 +1064,7 @@ $("#prev").onclick = ()=>step(-1);
 $("#next").onclick = ()=>step(1);
 $("#live").onclick = ()=>{ selected=null; refresh(); };
 $("#exportBtn").onclick = exportMovie;
+$("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
 $("#holdClose").onclick = closeHold;
 $("#holdAll").onclick = ()=>{

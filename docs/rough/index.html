@@ -229,6 +229,9 @@
     <div class="row">
       <button class="icon" id="exportBtn" style="width:100%;height:40px;font-size:13px">動画で書き出す</button>
     </div>
+    <div class="row">
+      <button class="icon" id="pngBtn" style="width:100%;height:36px;font-size:12px">PNG連番で書き出す</button>
+    </div>
     <div class="count" id="exportMsg"></div>
 
     <div class="row" style="justify-content:center;margin-top:14px">
@@ -246,6 +249,7 @@
   </div>
 </div>
 
+<script src="../zip.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -694,6 +698,7 @@ function refresh(){
   $("#play").textContent = playing ? "■" : "▶";
   $("#play").classList.toggle("on", playing);
   $("#exportBtn").disabled = exporting || playing || tot < 2;
+  $("#pngBtn").disabled = exporting || playing || !frames.length;
   const f = frames[current];
   $("#undo").disabled = playing || (layer === "back" ? !background.length : !(f && f.strokes.length));
   $("#redo").disabled = playing || (layer === "back" ? !backRedo.length : !(f && f.redo.length));
@@ -838,6 +843,54 @@ function saveBlob(blob, name){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 20000);
 }
+/* ZIP の中のファイル名は英数字に揃える。編集ソフトや古い展開ツールが
+   日本語名を読めないことがあるため。ZIP 自体の名前はそのまま。 */
+function asciiName(s){
+  const a = (s || "").replace(/[^A-Za-z0-9_-]/g, "");
+  return a || "frames";
+}
+
+/* PNG連番。線を引き直すので、指定した大きさそのままで出る。
+   実時間で録らないので尺の誤差も出ない。 */
+async function exportPNGs(){
+  if(exporting || playing) return;
+  const seq = expanded();
+  if(!seq.length){ $("#exportMsg").textContent = "1コマ以上必要です。"; return; }
+  exporting = true; refresh();
+  const W = outSize === "hd" ? 1280 : 1920;
+  const H = Math.round(W / RATIO / 2) * 2;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  const scale = W / SPEC.w;
+  const folder = asciiName($("#outName").value);
+  const digits = Math.max(4, String(seq.length).length);
+  const files = [];
+  for(let i = 0; i < seq.length; i++){
+    g.setTransform(1,0,0,1,0,0);
+    g.globalCompositeOperation = "source-over";
+    g.globalAlpha = 1;
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+    if(background.length) paintStrokes(g, background, scale, backOp);
+    paintStrokes(g, frames[seq[i]].strokes, scale);
+    const blob = await new Promise(r=>{ try{ c.toBlob(b=>r(b), "image/png"); }catch(e){ r(null); } });
+    if(blob) files.push({ name: folder + "/" + folder + "_" + zipPad(i+1, digits) + ".png", blob });
+    $("#exportMsg").textContent = "PNGを作っています " + (i+1) + " / " + seq.length;
+    await new Promise(r=>setTimeout(r, 0));
+  }
+  if(!files.length){
+    $("#exportMsg").textContent = "PNG を作れませんでした。";
+    exporting = false; refresh(); return;
+  }
+  const zip = await makeZip(files, (a,b)=>{
+    $("#exportMsg").textContent = "まとめています " + a + " / " + b;
+  });
+  const raw = ($("#outName").value || "rough").trim().replace(/[\\/:*?"<>|]/g, "_");
+  saveBlob(zip, (raw || "rough") + "_png.zip");
+  $("#exportMsg").textContent = "PNG " + files.length + "枚（" + W + "×" + H + "）を zip で保存しました（"
+    + (zip.size/1048576).toFixed(1) + "MB）。";
+  exporting = false; refresh();
+}
+
 async function exportMovie(){
   if(exporting || playing) return;
   const seq = expanded();
@@ -934,6 +987,7 @@ $("#play").onclick = togglePlay;
 $("#undo").onclick = undo;
 $("#redo").onclick = redo;
 $("#exportBtn").onclick = exportMovie;
+$("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
 
 seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
