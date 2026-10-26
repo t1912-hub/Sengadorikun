@@ -103,6 +103,8 @@
   #holdPick .foot{ display:flex; gap:8px; margin-top:10px; }
   #holdPick .foot button{ flex:1; padding:9px 0; background:transparent;
     color:var(--dim); border:1px solid var(--line); border-radius:8px; font-size:12px; }
+  /* 戻せない操作なので見た目で区別する */
+  #holdPick .foot button#holdDelete{ color:#e2574c; border-color:#5a3330; }
 
   /* 横位置：操作パネルを右へ */
   @media (orientation:landscape){
@@ -122,10 +124,17 @@
   <div class="card">
     <span class="lbl" style="margin-top:0" id="holdTitle">このコマの長さ</span>
     <div class="grid" id="holdGrid"></div>
+    <span class="lbl">このコマを動かす</span>
+    <div class="foot">
+      <button id="moveLeft">◀ 前へ</button>
+      <button id="moveRight">後ろへ ▶</button>
+    </div>
     <div class="foot">
       <button id="holdAll">全部に適用</button>
-      <button id="holdDelete">このコマを削除</button>
       <button id="holdClose">閉じる</button>
+    </div>
+    <div class="foot">
+      <button id="holdDelete">このコマを削除</button>
     </div>
   </div>
 </div>
@@ -161,6 +170,12 @@
       <button data-v="s">小</button>
       <button data-v="m" class="on">中</button>
       <button data-v="l">大</button>
+    </div>
+
+    <span class="lbl">いまの操作</span>
+    <div class="seg" id="modeSeg">
+      <button data-v="draw" class="on">描く</button>
+      <button data-v="move">ずらす</button>
     </div>
 
     <span class="lbl">道具</span>
@@ -258,8 +273,10 @@
       Apple Pencil や スタイラスの筆圧に対応しています。<br>
       紙は画面いっぱいには広げません。拡大して細部を作り込むより、
       ラフを手早く重ねることを優先しているためです。<br>
+      レイアウトを直したいときは「ずらす」に切り替えて、
+      画面をなぞると絵がまるごと動きます。<br>
       ペンを使うと、手のひらが触れても描きません。<br><br>
-      コマを長押しすると長さや削除を選べます。<br><br>
+      コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br><br>
       <strong>enter</strong> 新しいコマ（n も可）<br>
       <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
       <strong>4</strong> <strong>6</strong> コマ送り（← → も可）<br>
@@ -288,6 +305,7 @@ const strip = $("#strip");
 let frames = [];              // { id, strokes:[], redo:[], hold }
 let background = [];          // 全コマで共通の背景。下に薄く敷く。
 let backRedo = [];
+let bgOps = [], bgRedoOps = [];   // 背景の取り消し履歴
 let current = 0;
 let nextId = 1;
 
@@ -308,6 +326,11 @@ let playing = false, playPos = 0, playSeq = [], timer = null;
 let loading = false, exporting = false;
 let loopPlay = true;          // 最後まで行ったら頭に戻すか
 let paperSize = "m";          // 紙の大きさ
+/* 絵ごと動かす操作。投げ縄で一部を選ぶと細部をいじり始めてしまうので、
+   選択は持たせず「いま描いている面の全体」をまとめてずらす。
+   レイアウトの直しはそれで足りる。 */
+let mode = "draw";            // draw | move
+let moveOff = null;           // ずらしている最中の移動量（1920基準）
 /* 画面いっぱいに広げない。13インチで開くと紙が大きくなりすぎて、
    拡大して細部を作り込む描き方に流れてしまう。ラフを手早く重ねる
    道具なので、それを避ける。
@@ -404,7 +427,7 @@ function strokePath(g, st, scale, alphaMul){
 /* 下書き色と本番の色を分けて重ねる。
    「下書きだけ消す」が本番の線に触れないようにするため。
    下書きが下、本番が上。ラフを上からなぞる描きかたに合う。 */
-function paintStrokes(g, strokes, scale, alphaMul){
+function paintStrokes(g, strokes, scale, alphaMul, off){
   const draftSet = strokes.filter(s => (s.erase === 2) || (!s.erase && isDraft(s.color)) || s.erase === 1);
   const inkSet   = strokes.filter(s => (!s.erase && !isDraft(s.color)) || s.erase === 1);
   for(const pass of [draftSet, inkSet]){
@@ -415,7 +438,7 @@ function paintStrokes(g, strokes, scale, alphaMul){
     for(const st of pass) strokePath(t, st, scale);
     g.save();
     if(alphaMul !== undefined) g.globalAlpha = alphaMul;
-    g.drawImage(tmp, 0, 0);
+    g.drawImage(tmp, off ? off[0]*scale : 0, off ? off[1]*scale : 0);
     g.restore();
   }
 }
@@ -447,7 +470,8 @@ function redrawAll(){
 
   // 背景（作画中は薄く、背景を描いている時ははっきり）
   if(background.length)
-    paintStrokes(g, background, scale, layer === "back" ? 1 : backOp);
+    paintStrokes(g, background, scale, layer === "back" ? 1 : backOp,
+                 (moveOff && layer === "back") ? [moveOff.x, moveOff.y] : null);
 
   const idx = viewIndex();
 
@@ -461,8 +485,9 @@ function redrawAll(){
     }
   }
 
-  // いま見ているコマ
-  if(frames[idx]) paintStrokes(g, frames[idx].strokes, scale);
+  // いま見ているコマ。ずらしている最中はその分だけ寄せて見せる。
+  const off = (moveOff && layer === "art") ? [moveOff.x, moveOff.y] : null;
+  if(frames[idx]) paintStrokes(g, frames[idx].strokes, scale, undefined, off);
 
   clearLive();
 }
@@ -474,6 +499,17 @@ function clearLive(){
 function viewIndex(){
   if(playing && playSeq.length) return playSeq[Math.min(playPos, playSeq.length-1)];
   return current;
+}
+
+/* ---------- 絵をずらす ----------
+   取り消しのために、線を足したのか絵をずらしたのかを順に積む。
+   ずらしは線の点をまとめて動かすので、戻すときは逆向きに動かす。 */
+function opsOf(){ return layer === "back" ? bgOps : (frames[current] ? frames[current].ops : null); }
+function redoOpsOf(){ return layer === "back" ? bgRedoOps : (frames[current] ? frames[current].redoOps : null); }
+
+function shiftStrokes(list, dx, dy){
+  for(const st of list)
+    for(const p of st.pts){ p[0] += dx; p[1] += dy; }
 }
 
 /* ---------- 描く ---------- */
@@ -507,8 +543,16 @@ draw.addEventListener("pointerdown", e=>{
   if(!list) return;
   e.preventDefault();
   activeId = e.pointerId;
-  draw.setPointerCapture(e.pointerId);
+  // 指が離れた直後などに例外が出ることがある。ここで処理が止まると
+  // この一筆がまるごと失われるので、捕まえて先へ進める。
+  try{ draw.setPointerCapture(e.pointerId); }catch(err){}
   const p = toSpec(e);
+  if(mode === "move"){
+    if(!list.length){ activeId = null; return; }
+    moveOff = { x:0, y:0, from:p };
+    redrawAll();
+    return;
+  }
   drawing = {
     tool, color: ink,
     w: tool === "eraser" ? ERASE_W[eraseSize] : lineW,
@@ -518,6 +562,14 @@ draw.addEventListener("pointerdown", e=>{
   paintLive();
 });
 draw.addEventListener("pointermove", e=>{
+  if(moveOff && e.pointerId === activeId){
+    e.preventDefault();
+    const p = toSpec(e);
+    moveOff.x = p[0] - moveOff.from[0];
+    moveOff.y = p[1] - moveOff.from[1];
+    redrawAll();
+    return;
+  }
   if(!drawing || e.pointerId !== activeId) return;
   e.preventDefault();
   const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
@@ -531,12 +583,34 @@ draw.addEventListener("pointermove", e=>{
   paintLive();
 });
 function endStroke(e){
+  if(moveOff){
+    if(e && e.pointerId !== activeId) return;
+    const list = currentStrokes();
+    const dx = moveOff.x, dy = moveOff.y;
+    moveOff = null; activeId = null;
+    // ほとんど動いていないなら何も残さない
+    if(list && (Math.abs(dx) > 1 || Math.abs(dy) > 1)){
+      shiftStrokes(list, dx, dy);
+      const ops = opsOf(), rops = redoOpsOf();
+      if(ops){ ops.push({ k:"m", dx, dy }); if(rops) rops.length = 0; }
+      if(layer === "back") saveBackground();
+      else if(frames[current]) saveFrame(frames[current]);
+    }
+    redrawAll(); rebuildStrip(); refresh();
+    return;
+  }
   if(!drawing || (e && e.pointerId !== activeId)) return;
   const list = currentStrokes();
   if(list && drawing.pts.length){
     list.push(drawing);
-    if(layer === "back"){ backRedo.length = 0; saveBackground(); }
-    else if(frames[current]){ frames[current].redo.length = 0; saveFrame(frames[current]); }
+    if(layer === "back"){
+      backRedo.length = 0; bgOps.push({ k:"s" }); bgRedoOps.length = 0; saveBackground();
+    }else if(frames[current]){
+      frames[current].redo.length = 0;
+      frames[current].ops.push({ k:"s" });
+      frames[current].redoOps.length = 0;
+      saveFrame(frames[current]);
+    }
   }
   drawing = null; activeId = null;
   redrawAll();
@@ -563,33 +637,39 @@ function paintLive(){
 /* ---------- 取り消す / やり直す ---------- */
 function undo(){
   if(playing) return;
-  if(layer === "back"){
-    if(!background.length) return;
-    backRedo.push(background.pop()); saveBackground();
+  const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
+  if(!ops || !ops.length || !list) return;
+  const op = ops.pop();
+  if(op.k === "m"){
+    shiftStrokes(list, -op.dx, -op.dy);     // ずらしは逆向きに戻す
+    rops.push(op);
   }else{
-    const f = frames[current];
-    if(!f || !f.strokes.length) return;
-    f.redo.push(f.strokes.pop()); saveFrame(f);
+    const st = list.pop();
+    if(st) rops.push({ k:"s", st });
   }
+  if(layer === "back") saveBackground(); else saveFrame(frames[current]);
   redrawAll(); rebuildStrip(); refresh();
 }
 function redo(){
   if(playing) return;
-  if(layer === "back"){
-    if(!backRedo.length) return;
-    background.push(backRedo.pop()); saveBackground();
+  const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
+  if(!rops || !rops.length || !list) return;
+  const op = rops.pop();
+  if(op.k === "m"){
+    shiftStrokes(list, op.dx, op.dy);
+    ops.push(op);
   }else{
-    const f = frames[current];
-    if(!f || !f.redo.length) return;
-    f.strokes.push(f.redo.pop()); saveFrame(f);
+    list.push(op.st);
+    ops.push({ k:"s" });
   }
+  if(layer === "back") saveBackground(); else saveFrame(frames[current]);
   redrawAll(); rebuildStrip(); refresh();
 }
 
 /* ---------- コマ ---------- */
 function addFrame(){
   if(playing) return;
-  const f = { id: nextId++, strokes: [], redo: [], hold: 1 };
+  const f = { id: nextId++, strokes: [], redo: [], ops: [], redoOps: [], hold: 1 };
   frames.splice(current + 1, 0, f);
   current = Math.min(current + 1, frames.length - 1);
   if(layer === "back"){ layer = "art"; markSeg("#layerSeg", "art"); syncTool(); }
@@ -687,20 +767,43 @@ function openHold(i){
   const cur = Math.max(1, frames[i].hold || 1);
   const grid = $("#holdGrid");
   grid.innerHTML = "";
-  $("#holdTitle").textContent = (i+1) + "コマ目の長さ（" + fps + "fps）";
+  // 何コマ目を触っているかは syncMoveButtons が入れる
   HOLDS.forEach(n=>{
     const b = document.createElement("button");
     const sec = n / fps;
     b.innerHTML = n + "コマ<br><small style=\"opacity:.65;font-size:10px\">"
                 + (sec < 1 ? sec.toFixed(2) : sec.toFixed(1)) + "秒</small>";
     if(n === cur) b.classList.add("on");
-    b.onclick = ()=>{ setHold(i, n); closeHold(); };
+    // 長さを変えても閉じない。続けて動かせるようにするため。
+    b.onclick = ()=>{ setHold(holdTarget, n); openHold(holdTarget); };
     grid.appendChild(b);
   });
   $("#holdDelete").disabled = frames.length <= 1;
+  syncMoveButtons();
   $("#holdPick").hidden = false;
 }
 function closeHold(){ $("#holdPick").hidden = true; holdTarget = null; }
+
+/* コマの並びを入れ替える。何度も押して動かせるよう、
+   ダイアログは開いたままにして相手を新しい位置へ付け替える。 */
+function moveFrame(from, to){
+  if(playing || exporting) return false;
+  if(!frames[from] || to < 0 || to >= frames.length || from === to) return false;
+  const f = frames.splice(from, 1)[0];
+  frames.splice(to, 0, f);
+  current = to;               // 描く相手は動かしたコマに付いていく
+  holdTarget = to;
+  saveState(); redrawAll(); rebuildStrip(); refresh();
+  syncMoveButtons();
+  return true;
+}
+function syncMoveButtons(){
+  const i = holdTarget;
+  $("#moveLeft").disabled  = i === null || i <= 0;
+  $("#moveRight").disabled = i === null || i >= frames.length - 1;
+  if(i !== null) $("#holdTitle").textContent =
+    (i + 1) + "コマ目 / 全" + frames.length + "コマ（" + fps + "fps）";
+}
 function setHold(i, n){
   if(!frames[i]) return;
   frames[i].hold = Math.max(1, Math.min(48, n));
@@ -751,9 +854,9 @@ function refresh(){
   $("#play").classList.toggle("on", playing);
   $("#exportBtn").disabled = exporting || playing || tot < 2;
   $("#pngBtn").disabled = exporting || playing || !frames.length;
-  const f = frames[current];
-  $("#undo").disabled = playing || (layer === "back" ? !background.length : !(f && f.strokes.length));
-  $("#redo").disabled = playing || (layer === "back" ? !backRedo.length : !(f && f.redo.length));
+  const ops = opsOf(), rops = redoOpsOf();
+  $("#undo").disabled = playing || !(ops && ops.length);
+  $("#redo").disabled = playing || !(rops && rops.length);
   [...strip.querySelectorAll(".cell canvas")].forEach((c,i)=>
     c.classList.toggle("sel", viewIndex() === i));
 }
@@ -835,7 +938,7 @@ async function loadSaved(){
   db = await openDB();
   if(!db) return;
   const bg = await get(M_STORE, "background");
-  if(bg) background = unpackStrokes(bg.s);
+  if(bg){ background = unpackStrokes(bg.s); bgOps = background.map(()=>({ k:"s" })); }
   const st = await get(M_STORE, "state");
   if(st){
     if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
@@ -863,7 +966,10 @@ async function loadSaved(){
       for(let k = 0; k < st.order.length; k++){
         const rec = await get(F_STORE, st.order[k]);
         if(!rec) continue;
-        frames.push({ id: rec.id, strokes: unpackStrokes(rec.s), redo: [],
+        const sk = unpackStrokes(rec.s);
+        // 読み込んだ線も1本ずつ取り消せるようにしておく
+        frames.push({ id: rec.id, strokes: sk, redo: [],
+                      ops: sk.map(()=>({ k:"s" })), redoOps: [],
                       hold: (st.holds && st.holds[k]) || rec.hold || 1 });
         if(k % 5 === 0 || k === st.order.length - 1){
           $("#count").textContent = "読み込み中 " + (k+1) + " / " + st.order.length;
@@ -875,7 +981,7 @@ async function loadSaved(){
     }
   }
   if(!frames.length){
-    frames.push({ id: nextId++, strokes: [], redo: [], hold: 1 });
+    frames.push({ id: nextId++, strokes: [], redo: [], ops: [], redoOps: [], hold: 1 });
     current = 0;
     saveFrame(frames[0]); saveState();
   }
@@ -1050,6 +1156,7 @@ seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
 seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
 seg("#eraseSeg", v=>{ eraseKind = v; saveState(); });
 seg("#eraseSizeSeg", v=>{ eraseSize = v; saveState(); });
+seg("#modeSeg", v=>{ mode = v; paper.style.cursor = (v === "move") ? "grab" : ""; });
 seg("#paperSeg", v=>{ paperSize = v; saveState(); layout(); });
 seg("#fpsSeg", v=>{ fps = +v; saveState(); refresh();
   if(playing){ togglePlay(); togglePlay(); } });
@@ -1064,6 +1171,8 @@ $("#onionN").oninput = e=>{ onionN = +e.target.value;
 $("#backOp").oninput = e=>{ backOp = +e.target.value/100;
   $("#backOpV").textContent = e.target.value + "%"; redrawAll(); rebuildStrip(); saveState(); };
 
+$("#moveLeft").onclick  = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget - 1); };
+$("#moveRight").onclick = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget + 1); };
 $("#holdClose").onclick = closeHold;
 $("#holdAll").onclick = ()=>{
   if(holdTarget === null) return;
@@ -1096,7 +1205,7 @@ $("#clearAll").onclick = async ()=>{
   if(!confirm("描いたものを全部消します。戻せません。")) return;
   frames = []; background = []; backRedo = []; current = 0; nextId = 1;
   await clearSaved();
-  frames.push({ id: nextId++, strokes: [], redo: [], hold: 1 });
+  frames.push({ id: nextId++, strokes: [], redo: [], ops: [], redoOps: [], hold: 1 });
   saveFrame(frames[0]); saveState();
   redrawAll(); rebuildStrip(); refresh();
 };
