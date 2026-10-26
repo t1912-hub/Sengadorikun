@@ -177,6 +177,11 @@
               font-family:inherit;font-size:12px"></select>
     </div>
 
+    <span class="lbl">再生</span>
+    <div class="row">
+      <label class="toggle" style="min-width:0"><input type="checkbox" id="loopOn" checked> ループ再生</label>
+    </div>
+
     <span class="lbl">再生 fps</span>
     <div class="seg" id="fpsSeg">
       <button data-v="6">6</button><button data-v="8">8</button>
@@ -273,8 +278,10 @@
     </div>
 
     <p class="note">
-      space 撮影 / return 再生 / delete 直前を削除<br>
-      ← → コマ送り / esc ライブに戻る<br><br>
+      <strong>enter</strong> 撮影（space も可）<br>
+      <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
+      <strong>4</strong> <strong>6</strong> コマ送り（← → も可）<br>
+      <strong>del</strong> 見ているコマを削除 / <strong>esc</strong> ライブに戻る<br><br>
       コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br>
       動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
       尺を正確にしたいときは PNG連番 を使ってください。<br>
@@ -298,6 +305,7 @@ let selected = null;                // null ならライブ
 let playing = false, playPos = 0, timer = null;
 let playSeq = [];                   // 長さを展開したコマ番号の並び
 let loading = false;                // 保存したコマを読み出している最中か
+let loopPlay = true;               // 最後まで行ったら頭に戻すか
 const HOLDS = [1,2,3,4,6,8,12,24,48];
 let holdTarget = null;              // 長さを選んでいる相手
 let fps = 12, aspect = "wide";
@@ -729,6 +737,14 @@ function togglePlay(){
     playing = true; selected = null;
     playSeq = expanded(); playPos = 0;
     timer = setInterval(()=>{
+      if(playPos + 1 >= playSeq.length && !loopPlay){
+        // 最後まで来たら止める。頭に戻らず、最後のコマを出したままにする。
+        const last = playSeq[playSeq.length - 1];
+        clearInterval(timer); timer = null; playing = false;
+        selected = last;
+        rebuildStrip(); refresh();
+        return;
+      }
       playPos = (playPos + 1) % playSeq.length;
       refresh();
     }, 1000/fps);
@@ -806,7 +822,7 @@ function saveState(){
       store(M_STORE, "readwrite").put({
         key:"state", order: frames.map(f=>f.id),
         holds: frames.map(f=>Math.max(1, f.hold||1)), nextId, fps, aspect,
-        outName: $("#outName").value, outSize, camId,
+        outName: $("#outName").value, outSize, camId, loopPlay,
         view: { zoom: view.zoom, px: view.px, py: view.py },
         bin: JSON.parse(JSON.stringify(bin))
       });
@@ -848,6 +864,7 @@ async function loadSaved(){
   if(st.aspect){ aspect = st.aspect; markSeg("#aspSeg", aspect); }
   if(st.outName) $("#outName").value = st.outName;
   if(st.outSize){ outSize = st.outSize; markSeg("#sizeSeg", outSize); }
+  if(typeof st.loopPlay === "boolean"){ loopPlay = st.loopPlay; $("#loopOn").checked = loopPlay; }
   if(st.camId && !camStream){ camId = st.camId; startCamera(camId); }
   if(st.view){
     Object.assign(view, st.view);
@@ -1078,6 +1095,13 @@ function deleteFrame(i){
   saveState(); rebuildStrip(); refresh();
 }
 
+/* キーから消すときの相手。止めた絵を見ていればそのコマ、
+   ライブなら一番後ろのコマ。⌫ ボタンと同じく確認は挟まない。 */
+function deleteCurrent(){
+  if(playing || !frames.length) return;
+  deleteFrame(selected !== null ? selected : frames.length - 1);
+}
+
 /* コマの並びを入れ替える。
    何度も押して動かせるよう、ダイアログは開いたままにして
    相手を新しい位置へ付け替える。 */
@@ -1256,18 +1280,29 @@ $("#zoomReset").onclick = ()=>{
   box.addEventListener("pointercancel", end);
 })();
 
+$("#loopOn").onchange = e=>{ loopPlay = e.target.checked; saveState(); };
 $("#guideOn").onchange = drawGuide;
 $("#safety").oninput = e=>{ $("#safetyVal").textContent = e.target.value+"%"; drawGuide(); };
 
+/* ショートカット。テンキーに手を置いたまま撮り進められるようにする。
+   4 6 8 0 はテンキーの並びに合わせてある（左右・ループ・再生）。 */
 window.addEventListener("keydown", e=>{
-  if(e.target.tagName === "INPUT") return;
+  const t = e.target.tagName;
+  if(t === "INPUT" || t === "SELECT" || t === "TEXTAREA") return;
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key;
-  if(k === " "){ e.preventDefault(); capture(); }
-  else if(k === "Enter"){ e.preventDefault(); togglePlay(); }
-  else if(k === "Backspace" || k === "Delete"){ e.preventDefault(); undo(); }
-  else if(k === "ArrowLeft"){ e.preventDefault(); step(-1); }
-  else if(k === "ArrowRight"){ e.preventDefault(); step(1); }
-  else if(k === "Escape"){ e.preventDefault(); selected=null; refresh(); }
+  if(k === "Enter" || k === " "){ e.preventDefault(); capture(); }
+  else if(k === "0"){ e.preventDefault(); togglePlay(); }
+  else if(k === "4" || k === "ArrowLeft"){ e.preventDefault(); step(-1); }
+  else if(k === "6" || k === "ArrowRight"){ e.preventDefault(); step(1); }
+  else if(k === "8"){
+    e.preventDefault();
+    loopPlay = !loopPlay;
+    $("#loopOn").checked = loopPlay;
+    saveState();
+  }
+  else if(k === "Backspace" || k === "Delete"){ e.preventDefault(); deleteCurrent(); }
+  else if(k === "Escape"){ e.preventDefault(); selected = null; refresh(); }
 });
 
 syncBinUI();
