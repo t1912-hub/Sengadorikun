@@ -156,11 +156,17 @@
       <button data-v="back">背景</button>
     </div>
 
+    <span class="lbl">紙の大きさ</span>
+    <div class="seg" id="paperSeg">
+      <button data-v="s">小</button>
+      <button data-v="m" class="on">中</button>
+      <button data-v="l">大</button>
+    </div>
+
     <span class="lbl">道具</span>
     <div class="seg" id="toolSeg">
       <button data-v="pencil" class="on">鉛筆</button>
       <button data-v="pen">ペン</button>
-      <button data-v="marker">マーカー</button>
       <button data-v="eraser">消しゴム</button>
     </div>
 
@@ -250,6 +256,8 @@
 
     <p class="note">
       Apple Pencil や スタイラスの筆圧に対応しています。<br>
+      紙は画面いっぱいには広げません。拡大して細部を作り込むより、
+      ラフを手早く重ねることを優先しているためです。<br>
       ペンを使うと、手のひらが触れても描きません。<br><br>
       コマを長押しすると長さや削除を選べます。<br><br>
       <strong>enter</strong> 新しいコマ（n も可）<br>
@@ -299,6 +307,13 @@ let outSize = "fhd";
 let playing = false, playPos = 0, playSeq = [], timer = null;
 let loading = false, exporting = false;
 let loopPlay = true;          // 最後まで行ったら頭に戻すか
+let paperSize = "m";          // 紙の大きさ
+/* 画面いっぱいに広げない。13インチで開くと紙が大きくなりすぎて、
+   拡大して細部を作り込む描き方に流れてしまう。ラフを手早く重ねる
+   道具なので、それを避ける。
+   「中」は iPad mini を横にして開いたときの実寸に合わせてある
+   （1133 − パネル290 = 843）。それより小さい画面では収まるだけ縮む。 */
+const PAPER_W = { s:680, m:843, l:1080 };
 const HOLDS = [1,2,3,4,6,8,12,24,48];
 let holdTarget = null;
 
@@ -317,7 +332,8 @@ const ONION_AFTER  = "#e2574c";   // 後のコマは赤
 let box = { w:0, h:0 };
 function layout(){
   const s = $("#stage").getBoundingClientRect();
-  let w = s.width, h = w / RATIO;
+  let w = Math.min(s.width, PAPER_W[paperSize] || PAPER_W.m);
+  let h = w / RATIO;
   if(h > s.height){ h = s.height; w = h * RATIO; }
   box = { w:Math.max(1,Math.floor(w)), h:Math.max(1,Math.floor(h)) };
   paper.style.width = box.w + "px";
@@ -806,7 +822,7 @@ function saveState(){
       key:"state", order: frames.map(f=>f.id),
       holds: frames.map(f=>Math.max(1,f.hold||1)),
       nextId, current, fps, onionOn, onionOp, onionN, backOp,
-      tool, ink, lineW, eraseKind, eraseSize, outSize, loopPlay,
+      tool, ink, lineW, eraseKind, eraseSize, outSize, loopPlay, paperSize,
       outName: $("#outName").value
     });
   }catch(e){}
@@ -823,7 +839,9 @@ async function loadSaved(){
   const st = await get(M_STORE, "state");
   if(st){
     if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
-    if(st.tool){ tool = st.tool; markSeg("#toolSeg", tool); }
+    if(st.paperSize){ paperSize = st.paperSize; markSeg("#paperSeg", paperSize); }
+    // マーカーは廃止したので、保存されていても鉛筆に寄せる
+    if(st.tool){ tool = (st.tool === "marker") ? "pencil" : st.tool; markSeg("#toolSeg", tool); }
     if(st.ink) ink = st.ink;
     if(st.lineW){ lineW = st.lineW; $("#lineW").value = lineW; $("#lineWV").textContent = lineW; }
     if(st.eraseKind){ eraseKind = st.eraseKind; markSeg("#eraseSeg", eraseKind); }
@@ -1032,6 +1050,7 @@ seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
 seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
 seg("#eraseSeg", v=>{ eraseKind = v; saveState(); });
 seg("#eraseSizeSeg", v=>{ eraseSize = v; saveState(); });
+seg("#paperSeg", v=>{ paperSize = v; saveState(); layout(); });
 seg("#fpsSeg", v=>{ fps = +v; saveState(); refresh();
   if(playing){ togglePlay(); togglePlay(); } });
 seg("#sizeSeg", v=>{ outSize = v; saveState(); });
