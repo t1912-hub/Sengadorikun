@@ -101,6 +101,8 @@
   #holdPick .foot{ display:flex; gap:8px; margin-top:10px; }
   #holdPick .foot button{ flex:1; padding:9px 0; background:transparent;
     color:var(--dim); border:1px solid var(--line); border-radius:8px; font-size:12px; }
+  /* 戻せない操作なので見た目で区別する */
+  #holdPick .foot button#holdDelete{ color:#e2574c; border-color:#5a3330; }
   #strip .hold{ position:absolute; }
   #strip .cell{ position:relative; flex:0 0 auto; }
   #strip .cell .badge{ position:absolute; right:3px; bottom:3px; background:var(--amber);
@@ -132,6 +134,9 @@
     <div class="foot">
       <button id="holdAll">全部に適用</button>
       <button id="holdClose">閉じる</button>
+    </div>
+    <div class="foot">
+      <button id="holdDelete">このコマを削除</button>
     </div>
   </div>
 </div>
@@ -270,7 +275,7 @@
     <p class="note">
       space 撮影 / return 再生 / delete 直前を削除<br>
       ← → コマ送り / esc ライブに戻る<br><br>
-      コマを長押しすると、長さを変えたり前後へ動かせます。<br>
+      コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br>
       動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
       尺を正確にしたいときは PNG連番 を使ってください。<br>
       ホーム画面に追加すると全画面で使えます。<br>
@@ -1062,6 +1067,17 @@ function setHold(i, n){
   rebuildStrip(); refresh(); saveState();
 }
 
+/* 任意のコマを消す。これまでは一番後ろしか消せなかったので、
+   途中の失敗だけを抜くことができなかった。 */
+function deleteFrame(i){
+  if(playing || !frames[i]) return;
+  const f = frames.splice(i, 1)[0];
+  dropFrame(f.id);
+  // 消した場所に繰り上がってきたコマを見せる。続けて消す時に探さずに済む。
+  selected = frames.length ? Math.min(i, frames.length - 1) : null;
+  saveState(); rebuildStrip(); refresh();
+}
+
 /* コマの並びを入れ替える。
    何度も押して動かせるよう、ダイアログは開いたままにして
    相手を新しい位置へ付け替える。 */
@@ -1097,6 +1113,12 @@ $("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
 $("#moveLeft").onclick  = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget - 1); };
 $("#moveRight").onclick = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget + 1); };
+$("#holdDelete").onclick = ()=>{
+  if(holdTarget === null) return;
+  const i = holdTarget;
+  closeHold();
+  if(confirm((i+1) + "コマ目を消します。戻せません。")) deleteFrame(i);
+};
 $("#holdClose").onclick = closeHold;
 $("#holdAll").onclick = ()=>{
   // いま選んでいるコマの長さを全部に広げる。2コマ打ちで通したい時に使う。
