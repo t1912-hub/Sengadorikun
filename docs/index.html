@@ -124,6 +124,11 @@
   <div class="card">
     <span class="lbl" style="margin-top:0" id="holdTitle">このコマの長さ</span>
     <div class="grid" id="holdGrid"></div>
+    <span class="lbl">このコマを動かす</span>
+    <div class="foot">
+      <button id="moveLeft">◀ 前へ</button>
+      <button id="moveRight">後ろへ ▶</button>
+    </div>
     <div class="foot">
       <button id="holdAll">全部に適用</button>
       <button id="holdClose">閉じる</button>
@@ -265,7 +270,7 @@
     <p class="note">
       space 撮影 / return 再生 / delete 直前を削除<br>
       ← → コマ送り / esc ライブに戻る<br><br>
-      コマを長押しすると長さを変えられます（2コマ打ちなど）。<br>
+      コマを長押しすると、長さを変えたり前後へ動かせます。<br>
       動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
       尺を正確にしたいときは PNG連番 を使ってください。<br>
       ホーム画面に追加すると全画面で使えます。<br>
@@ -1036,17 +1041,18 @@ function openHold(i){
   const cur = Math.max(1, frames[i].hold || 1);
   const grid = $("#holdGrid");
   grid.innerHTML = "";
-  // 何秒止まるかは fps で変わる。暗算させずにそのまま見せる。
-  $("#holdTitle").textContent = "このコマの長さ（" + fps + "fps）";
+  // 何コマ目を触っているか、動かした後も分かるようにする
   HOLDS.forEach(n=>{
     const b = document.createElement("button");
     const sec = n / fps;
     b.innerHTML = n + "コマ<br><small style=\"opacity:.65;font-size:10px\">"
                 + (sec < 1 ? sec.toFixed(2) : sec.toFixed(1)) + "秒</small>";
     if(n === cur) b.classList.add("on");
-    b.onclick = ()=>{ setHold(i, n); closeHold(); };
+    // 長さを変えても閉じない。続けて動かせるようにするため。
+    b.onclick = ()=>{ setHold(holdTarget, n); openHold(holdTarget); };
     grid.appendChild(b);
   });
+  syncMoveButtons();
   $("#holdPick").hidden = false;
 }
 function closeHold(){ $("#holdPick").hidden = true; holdTarget = null; }
@@ -1054,6 +1060,29 @@ function setHold(i, n){
   if(!frames[i]) return;
   frames[i].hold = Math.max(1, Math.min(48, n));
   rebuildStrip(); refresh(); saveState();
+}
+
+/* コマの並びを入れ替える。
+   何度も押して動かせるよう、ダイアログは開いたままにして
+   相手を新しい位置へ付け替える。 */
+function moveFrame(from, to){
+  if(playing) return false;
+  if(!frames[from] || to < 0 || to >= frames.length || from === to) return false;
+  const f = frames.splice(from, 1)[0];
+  frames.splice(to, 0, f);
+  // 見ているコマは動かしたコマに付いていく
+  selected = to;
+  holdTarget = to;
+  rebuildStrip(); refresh(); saveState();
+  syncMoveButtons();
+  return true;
+}
+function syncMoveButtons(){
+  const i = holdTarget;
+  $("#moveLeft").disabled  = i === null || i <= 0;
+  $("#moveRight").disabled = i === null || i >= frames.length - 1;
+  if(i !== null) $("#holdTitle").textContent =
+    (i + 1) + "コマ目 / 全" + frames.length + "コマ（" + fps + "fps）";
 }
 
 /* ---------- 配線 ---------- */
@@ -1066,6 +1095,8 @@ $("#live").onclick = ()=>{ selected=null; refresh(); };
 $("#exportBtn").onclick = exportMovie;
 $("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
+$("#moveLeft").onclick  = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget - 1); };
+$("#moveRight").onclick = ()=>{ if(holdTarget !== null) moveFrame(holdTarget, holdTarget + 1); };
 $("#holdClose").onclick = closeHold;
 $("#holdAll").onclick = ()=>{
   // いま選んでいるコマの長さを全部に広げる。2コマ打ちで通したい時に使う。
