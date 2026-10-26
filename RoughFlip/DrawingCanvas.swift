@@ -10,10 +10,11 @@ enum CanvasSpec {
 }
 
 /// 道具の種類
+/// 道具。マーカーは置かない。ラフを重ねる用途では鉛筆とペンで足り、
+/// 選択肢が増えるほど迷う時間が増えるため。
 enum DrawTool: String, CaseIterable, Identifiable {
     case pencil = "鉛筆"
     case pen    = "ペン"
-    case marker = "マーカー"
     case eraser = "消しゴム"
 
     var id: String { rawValue }
@@ -22,7 +23,6 @@ enum DrawTool: String, CaseIterable, Identifiable {
         switch self {
         case .pencil: return "pencil"
         case .pen:    return "pencil.tip"
-        case .marker: return "highlighter"
         case .eraser: return "eraser"
         }
     }
@@ -31,8 +31,27 @@ enum DrawTool: String, CaseIterable, Identifiable {
         switch self {
         case .pencil: return PKInkingTool(.pencil, color: color, width: width)
         case .pen:    return PKInkingTool(.pen,    color: color, width: width)
-        case .marker: return PKInkingTool(.marker, color: color, width: width * 2.5)
         case .eraser: return eraser.pkTool(width: width)
+        }
+    }
+}
+
+/// 紙の大きさ。画面いっぱいには広げない。
+/// 13インチで開くと紙が大きくなりすぎて、拡大して細部を作り込む描き方に
+/// 流れてしまう。ラフを手早く重ねる道具なので、それを避ける。
+/// 「中」は iPad mini を横にして開いたときの実寸に合わせてある。
+enum PaperSize: String, CaseIterable, Identifiable {
+    case small  = "小"
+    case medium = "中"
+    case large  = "大"
+
+    var id: String { rawValue }
+
+    var maxWidth: CGFloat {
+        switch self {
+        case .small:  return 680
+        case .medium: return 843
+        case .large:  return 1080
         }
     }
 }

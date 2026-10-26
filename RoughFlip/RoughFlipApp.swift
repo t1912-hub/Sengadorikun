@@ -40,6 +40,19 @@ struct RoughFlipView: View {
         var id: String { rawValue }
     }
     @State private var tool: DrawTool = .pencil
+    @State private var paperSize: PaperSize = .medium
+    /// いまの操作。投げ縄で一部を選ぶと細部をいじり始めてしまうので、
+    /// 選択は持たせず「いま描いている面の全体」をまとめて動かす。
+    enum EditMode: String, CaseIterable, Identifiable {
+        case draw = "描く"
+        case move = "ずらす"
+        var id: String { rawValue }
+    }
+    @State private var mode: EditMode = .draw
+    /// ずらしている最中の当て方。確定するまで絵そのものは動かさない。
+    @State private var moveDX: CGFloat = 0
+    @State private var moveDY: CGFloat = 0
+    @State private var movePct: Double = 100
     @State private var lineWidth: CGFloat = 6
     @State private var inkColor: Color = .black
     @State private var eraserMode: EraserMode = .hard
@@ -50,6 +63,11 @@ struct RoughFlipView: View {
     /// 画面上のキャンバスの幅。描いた線を 1920 基準へ直すのに使う。
     /// レイアウトから渡される値より、キャンバス本体の実寸を優先する。
     @State private var canvasWidth: CGFloat = 0
+    /// いま画面に出ている紙の寸法。つまみから確定するときに使う。
+    private var currentBox: CGSize {
+        let w = displayWidth
+        return CGSize(width: w, height: w / CanvasSpec.ratio)
+    }
     private var displayWidth: CGFloat {
         if let w = canvas?.bounds.width, w > 1 { return w }
         return canvasWidth
@@ -62,6 +80,8 @@ struct RoughFlipView: View {
     @State private var playTimer: Timer?
 
     @State private var fps: Double = 12
+    /// 最後まで行ったら頭に戻すか。オニオンスキンの端の見え方も これで変わる。
+    @State private var loopPlay = true
     @State private var onionEnabled = true
     @State private var onionOpacity: Double = 0.35
     @State private var onionCount = 1
@@ -81,6 +101,7 @@ struct RoughFlipView: View {
         var id: String { rawValue }
     }
     @State private var alertMessage: String?
+    @State private var askReset = false
     @State private var askNewProject = false
     @State private var newProjectName = ""
     @State private var showOpen = false
@@ -118,6 +139,12 @@ struct RoughFlipView: View {
         }
         .sheet(isPresented: $showShare) {
             if let url = shareURL { ShareSheet(items: [url]) }
+        }
+        .alert("リセット", isPresented: $askReset) {
+            Button("キャンセル", role: .cancel) { }
+            Button("リセット", role: .destructive) { resetAll() }
+        } message: {
+            Text("描いたものと設定を全部消して、最初の状態に戻します。次の人に渡すときに使ってください。戻せません。")
         }
         .alert("新しいプロジェクト", isPresented: $askNewProject) {
             TextField("名前", text: $newProjectName)
@@ -165,6 +192,20 @@ struct RoughFlipView: View {
                                 .frame(width: box.width, height: box.height)
                         }
                     } else {
+                        if mode == .move {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .frame(width: box.width, height: box.height)
+                                .gesture(DragGesture(minimumDistance: 0)
+                                    .onChanged { v in
+                                        moveDX = v.translation.width
+                                        moveDY = v.translation.height
+                                    }
+                                    .onEnded { _ in
+                                        commitMove(box: box)
+                                    })
+                                .zIndex(2)
+                        }
                         if tool == .eraser && !eraserMode.usesPencilKit {
                             Color.clear
                                 .contentShape(Rectangle())
@@ -195,6 +236,9 @@ struct RoughFlipView: View {
                                           if c.bounds.width > 1 { canvasWidth = c.bounds.width }
                                       },
                                       onChange: { _ in commitCurrent() })
+                            .offset(x: moveDX, y: moveDY)
+                            .scaleEffect(movePct / 100.0)
+                            .allowsHitTesting(mode == .draw)
                     }
                 }
                 .frame(width: box.width, height: box.height)
@@ -209,7 +253,8 @@ struct RoughFlipView: View {
 
     private func fittedBox(in size: CGSize) -> CGSize {
         guard size.width > 1, size.height > 1 else { return size }
-        var w = size.width - 16
+        // 選んだ大きさで頭打ちにする。小さい画面では収まるだけ縮む。
+        var w = min(size.width - 16, paperSize.maxWidth)
         var h = w / CanvasSpec.ratio
         if h > size.height - 16 { h = size.height - 16; w = h * CanvasSpec.ratio }
         return CGSize(width: max(1, floor(w)), height: max(1, floor(h)))
@@ -238,14 +283,31 @@ struct RoughFlipView: View {
     }
 
     /// 重ねるコマ番号と濃さ。離れるほど薄くする。
+    /// 前後のコマ。ループ再生がオンなら端で巻き戻し、最後のコマの「後」に
+    /// 最初のコマを、最初のコマの「前」に最後のコマを出す。
+    /// 輪になった動きの繋ぎ目を見ながら直せるようにするため。
     private var onionNeighbours: [(Int, Double, Bool)] {
+        let n = store.frames.count
+        guard n > 0 else { return [] }
+        // 巻き戻すと同じコマが前後の両方に来ることがある。近いほうを優先する。
+        func at(_ i: Int) -> Int? {
+            if store.frames.indices.contains(i) { return i }
+            guard loopPlay, n >= 2 else { return nil }
+            return ((i % n) + n) % n
+        }
         var out: [(Int, Double, Bool)] = []
+        var used: Set<Int> = [current]
         for d in 1...max(1, onionCount) {
             let depth = 1.0 - Double(d - 1) / Double(max(1, onionCount)) * 0.5
-            if store.frames.indices.contains(current - d) { out.append((current - d, depth, true)) }
-            if store.frames.indices.contains(current + d) { out.append((current + d, depth, false)) }
+            if let b = at(current - d), !used.contains(b) {
+                out.append((b, depth, true)); used.insert(b)
+            }
+            if let a = at(current + d), !used.contains(a) {
+                out.append((a, depth, false)); used.insert(a)
+            }
         }
-        return out
+        // 遠いものから敷く。近いコマが上に来て濃く見える。
+        return out.reversed()
     }
 
     /// なぞった所にある青・赤の線を、部分的に消す
@@ -393,6 +455,35 @@ struct RoughFlipView: View {
                 }
 
                 VStack(spacing: 8) {
+                    Picker("いまの操作", selection: $mode) {
+                        ForEach(EditMode.allCases) { m in Text(m.rawValue).tag(m) }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: mode) { _, _ in
+                        // 描くほうへ戻すときは、当てかけを捨てる
+                        moveDX = 0; moveDY = 0; movePct = 100
+                    }
+
+                    if mode == .move {
+                        HStack {
+                            Text("大きさ").font(.caption2).foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .leading)
+                            Slider(value: $movePct, in: 50...200,
+                                   onEditingChanged: { editing in
+                                       // つまみを離したところで確定する
+                                       if !editing { commitMove(box: currentBox) }
+                                   })
+                            Text("\(Int(movePct))%")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                    }
+
+                    Picker("紙の大きさ", selection: $paperSize) {
+                        ForEach(PaperSize.allCases) { p in Text(p.rawValue).tag(p) }
+                    }
+                    .pickerStyle(.segmented)
+
                     Picker("道具", selection: $tool) {
                         ForEach(DrawTool.allCases) { t in
                             Image(systemName: t.symbol).tag(t)
@@ -487,6 +578,12 @@ struct RoughFlipView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(spacing: 4) {
+                    Toggle(isOn: $loopPlay) {
+                        Text("ループ再生").font(.caption2)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(amber)
+
                     Text("再生 fps").font(.caption2).foregroundStyle(.secondary)
                     Picker("fps", selection: $fps) {
                         Text("6").tag(6.0); Text("8").tag(8.0)
@@ -527,6 +624,13 @@ struct RoughFlipView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(isPlaying)
+
+                Button(role: .destructive) { askReset = true } label: {
+                    Label("リセット（次の人へ渡す）", systemImage: "arrow.counterclockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isPlaying || isExporting)
 
                 HStack(spacing: 10) {
                     Button("複製") { duplicate(at: current) }.disabled(isPlaying)
@@ -623,6 +727,39 @@ struct RoughFlipView: View {
         drawing = PKDrawing()
         background = PKDrawing()
         layer = .art
+        addFrame()
+    }
+
+    /// 次の人に渡すためのリセット。絵も設定も残さない。
+    /// 学校の端末を何人かで使い回すとき、前の人の設定が残っていると
+    /// 次の人が原因の分からない見え方に悩むことになる。
+    private func resetAll() {
+        if isPlaying { stopPlayback() }
+        store.flush()
+        store.startNewProject(named: "ラフガキちゃん")
+        current = 0
+        playPos = 0
+        drawing = PKDrawing()
+        background = PKDrawing()
+        backgroundImage = nil
+        layer = .art
+        // 設定も既定へ戻す
+        mode = .draw
+        moveDX = 0; moveDY = 0; movePct = 100
+        paperSize = .medium
+        tool = .pencil
+        lineWidth = 6
+        inkColor = .black
+        eraserMode = .hard
+        eraserSize = .medium
+        backgroundOpacity = 0.6
+        onionEnabled = true
+        onionOpacity = 0.35
+        onionCount = 1
+        loopPlay = true
+        fps = 12
+        exportSize = .fhd
+        exportName = "ラフガキちゃん"
         addFrame()
     }
 
@@ -779,6 +916,28 @@ struct RoughFlipView: View {
         loadDrawing(at: to)
     }
 
+    /// 移動と大きさをまとめて1件として確定する。
+    /// 画面に見えている寄せ方と同じ式を絵にも当てる。
+    ///   p' = 中心 + (p − 中心) × k + (dx, dy)
+    private func commitMove(box: CGSize) {
+        let dx = moveDX, dy = moveDY
+        let k = CGFloat(movePct / 100.0)
+        moveDX = 0; moveDY = 0; movePct = 100
+        let moved = abs(dx) > 1 || abs(dy) > 1
+        let scaled = abs(k - 1) > 0.001
+        guard moved || scaled else { return }
+        let cx = box.width / 2, cy = box.height / 2
+        var t = CGAffineTransform.identity
+        t = t.translatedBy(x: dx, y: dy)
+        t = t.translatedBy(x: cx, y: cy)
+        t = t.scaledBy(x: k, y: k)
+        t = t.translatedBy(x: -cx, y: -cy)
+        // PencilKit は自前の差し替えを取り消し履歴に入れないので、こちらで積む
+        canvas?.registerUndoStep(restoring: drawing)
+        drawing = drawing.transformed(using: t)
+        commitCurrent()
+    }
+
     private func loadDrawing(at index: Int) {
         guard store.frames.indices.contains(index) else { drawing = PKDrawing(); return }
         if let data = store.readSidecar(for: store.frames[index], ext: "drawing"),
@@ -843,6 +1002,14 @@ struct RoughFlipView: View {
         playTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / fps, repeats: true) { _ in
             let n = store.expandedIndices.count
             guard n > 0 else { return }
+            if playPos + 1 >= n && !loopPlay {
+                // 最後まで来たら止める。頭に戻らず、最後のコマを出したままにする。
+                let last = store.expandedIndices[n - 1]
+                stopPlayback()
+                current = last
+                loadDrawing(at: last)
+                return
+            }
             playPos = (playPos + 1) % n
         }
     }
