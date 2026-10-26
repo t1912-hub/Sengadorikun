@@ -226,6 +226,7 @@
     </div>
 
     <span class="lbl">オニオンスキン（前は緑・後は赤）</span>
+    <p class="note" style="margin:0 0 4px">ループ再生がオンなら、端で最初／最後に繋がります。</p>
     <div class="row">
       <label style="min-width:34px"><input type="checkbox" id="onionOn" checked> 表示</label>
       <input type="range" id="onionOp" min="5" max="70" value="30">
@@ -503,13 +504,31 @@ function redrawAll(){
 
   const idx = viewIndex();
 
-  // オニオンスキン
+  // オニオンスキン。
+  // ループ再生がオンなら端で巻き戻す。最後のコマの「後」は最初のコマで、
+  // 最初のコマの「前」は最後のコマ。輪になった動きの繋ぎ目を見るため。
   if(onionOn && !playing && layer === "art" && frames.length){
-    for(let d = onionN; d >= 1; d--){
+    const n = frames.length;
+    const at = i =>{
+      if(i >= 0 && i < n) return i;
+      if(!loopPlay || n < 2) return -1;
+      return ((i % n) + n) % n;
+    };
+    // 近いコマから先に取る。巻き戻すと同じコマが前後の両方に来ることがあり、
+    // その時は近いほうの扱いを優先する。
+    const picks = [];
+    const used = new Set([idx]);
+    for(let d = 1; d <= onionN; d++){
       const depth = 1 - (d - 1) / (onionN + 0.5);
-      const b = idx - d, a = idx + d;
-      if(frames[b]) paintTinted(g, frames[b].strokes, scale, ONION_BEFORE, onionOp * depth);
-      if(frames[a]) paintTinted(g, frames[a].strokes, scale, ONION_AFTER,  onionOp * depth);
+      const b = at(idx - d);
+      if(b >= 0 && !used.has(b)){ picks.push({ i:b, c:ONION_BEFORE, depth }); used.add(b); }
+      const a = at(idx + d);
+      if(a >= 0 && !used.has(a)){ picks.push({ i:a, c:ONION_AFTER, depth }); used.add(a); }
+    }
+    // 遠いものから敷く。近いコマが上に来て濃く見える。
+    for(let k = picks.length - 1; k >= 0; k--){
+      const pk = picks[k];
+      paintTinted(g, frames[pk.i].strokes, scale, pk.c, onionOp * pk.depth);
     }
   }
 
@@ -1240,7 +1259,7 @@ $("#redo").onclick = redo;
 $("#exportBtn").onclick = exportMovie;
 $("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
-$("#loopOn").onchange = e=>{ loopPlay = e.target.checked; saveState(); };
+$("#loopOn").onchange = e=>{ loopPlay = e.target.checked; saveState(); redrawAll(); };
 
 seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
 seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
@@ -1343,6 +1362,7 @@ window.addEventListener("keydown", e=>{
     loopPlay = !loopPlay;
     $("#loopOn").checked = loopPlay;
     saveState();
+    redrawAll();          // 端のオニオンの出かたが変わる
   }
   else if(k === "Backspace" || k === "Delete"){ e.preventDefault(); deleteCurrent(); }
   else if(k === "Escape"){ e.preventDefault(); closeHold(); }
