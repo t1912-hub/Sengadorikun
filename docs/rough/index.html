@@ -178,6 +178,14 @@
       <button data-v="move">ずらす</button>
     </div>
 
+    <div id="moveBlock" hidden>
+      <div class="row">
+        <label>大きさ</label>
+        <input type="range" id="movePct" min="50" max="200" value="100">
+        <span class="val" id="movePctV">100%</span>
+      </div>
+    </div>
+
     <span class="lbl">道具</span>
     <div class="seg" id="toolSeg">
       <button data-v="pencil" class="on">鉛筆</button>
@@ -273,8 +281,8 @@
       Apple Pencil や スタイラスの筆圧に対応しています。<br>
       紙は画面いっぱいには広げません。拡大して細部を作り込むより、
       ラフを手早く重ねることを優先しているためです。<br>
-      レイアウトを直したいときは「ずらす」に切り替えて、
-      画面をなぞると絵がまるごと動きます。<br>
+      レイアウトを直したいときは「ずらす」に切り替えます。
+      画面をなぞると絵がまるごと動き、「大きさ」で拡大縮小できます。<br>
       ペンを使うと、手のひらが触れても描きません。<br><br>
       コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br><br>
       <strong>enter</strong> 新しいコマ（n も可）<br>
@@ -330,7 +338,10 @@ let paperSize = "m";          // 紙の大きさ
    選択は持たせず「いま描いている面の全体」をまとめてずらす。
    レイアウトの直しはそれで足りる。 */
 let mode = "draw";            // draw | move
-let moveOff = null;           // ずらしている最中の移動量（1920基準）
+/* ずらし中の当て方。確定するまで線そのものは動かさず、表示だけ寄せる。
+   dx dy は 1920 基準の移動量、k は紙の中心を軸にした倍率。 */
+let tf = null;                // { dx, dy, k, from } ／ 使っていない間は null
+let pendK = 1;                // つまみで選んでいる倍率
 /* 画面いっぱいに広げない。13インチで開くと紙が大きくなりすぎて、
    拡大して細部を作り込む描き方に流れてしまう。ラフを手早く重ねる
    道具なので、それを避ける。
@@ -427,7 +438,7 @@ function strokePath(g, st, scale, alphaMul){
 /* 下書き色と本番の色を分けて重ねる。
    「下書きだけ消す」が本番の線に触れないようにするため。
    下書きが下、本番が上。ラフを上からなぞる描きかたに合う。 */
-function paintStrokes(g, strokes, scale, alphaMul, off){
+function paintStrokes(g, strokes, scale, alphaMul, view){
   const draftSet = strokes.filter(s => (s.erase === 2) || (!s.erase && isDraft(s.color)) || s.erase === 1);
   const inkSet   = strokes.filter(s => (!s.erase && !isDraft(s.color)) || s.erase === 1);
   for(const pass of [draftSet, inkSet]){
@@ -438,7 +449,15 @@ function paintStrokes(g, strokes, scale, alphaMul, off){
     for(const st of pass) strokePath(t, st, scale);
     g.save();
     if(alphaMul !== undefined) g.globalAlpha = alphaMul;
-    g.drawImage(tmp, off ? off[0]*scale : 0, off ? off[1]*scale : 0);
+    if(view){
+      // 確定の式 p' = 中心 + (p − 中心)×k + d と同じ並びにする
+      const cx = SPEC.w / 2 * scale, cy = SPEC.h / 2 * scale;
+      g.translate(view.dx * scale, view.dy * scale);
+      g.translate(cx, cy);
+      g.scale(view.k, view.k);
+      g.translate(-cx, -cy);
+    }
+    g.drawImage(tmp, 0, 0);
     g.restore();
   }
 }
@@ -471,7 +490,7 @@ function redrawAll(){
   // 背景（作画中は薄く、背景を描いている時ははっきり）
   if(background.length)
     paintStrokes(g, background, scale, layer === "back" ? 1 : backOp,
-                 (moveOff && layer === "back") ? [moveOff.x, moveOff.y] : null);
+                 (tf && layer === "back") ? tf : null);
 
   const idx = viewIndex();
 
@@ -486,8 +505,8 @@ function redrawAll(){
   }
 
   // いま見ているコマ。ずらしている最中はその分だけ寄せて見せる。
-  const off = (moveOff && layer === "art") ? [moveOff.x, moveOff.y] : null;
-  if(frames[idx]) paintStrokes(g, frames[idx].strokes, scale, undefined, off);
+  const view = (tf && layer === "art") ? tf : null;
+  if(frames[idx]) paintStrokes(g, frames[idx].strokes, scale, undefined, view);
 
   clearLive();
 }
@@ -507,9 +526,23 @@ function viewIndex(){
 function opsOf(){ return layer === "back" ? bgOps : (frames[current] ? frames[current].ops : null); }
 function redoOpsOf(){ return layer === "back" ? bgRedoOps : (frames[current] ? frames[current].redoOps : null); }
 
-function shiftStrokes(list, dx, dy){
-  for(const st of list)
-    for(const p of st.pts){ p[0] += dx; p[1] += dy; }
+/* 紙の中心を軸に k 倍してから dx dy だけ寄せる。
+     p' = 中心 + (p − 中心) × k + (dx, dy)
+   表示側の当て方もこの式に合わせてあるので、見た目と確定後が一致する。
+   線の太さも一緒に変える。変えないと、縮めたときに線だけ太いまま残る。 */
+function transformStrokes(list, dx, dy, k){
+  const cx = SPEC.w / 2, cy = SPEC.h / 2;
+  for(const st of list){
+    for(const p of st.pts){
+      p[0] = cx + (p[0] - cx) * k + dx;
+      p[1] = cy + (p[1] - cy) * k + dy;
+    }
+    if(k !== 1) st.w = st.w * k;
+  }
+}
+/* 上の逆。p = 中心 + (p' − 中心 − d) / k なので、同じ関数へ入れ直せる形にする。 */
+function untransformStrokes(list, dx, dy, k){
+  transformStrokes(list, -dx / k, -dy / k, 1 / k);
 }
 
 /* ---------- 描く ---------- */
@@ -549,7 +582,7 @@ draw.addEventListener("pointerdown", e=>{
   const p = toSpec(e);
   if(mode === "move"){
     if(!list.length){ activeId = null; return; }
-    moveOff = { x:0, y:0, from:p };
+    tf = { dx:0, dy:0, k:pendK, from:p };
     redrawAll();
     return;
   }
@@ -562,11 +595,11 @@ draw.addEventListener("pointerdown", e=>{
   paintLive();
 });
 draw.addEventListener("pointermove", e=>{
-  if(moveOff && e.pointerId === activeId){
+  if(tf && e.pointerId === activeId){
     e.preventDefault();
     const p = toSpec(e);
-    moveOff.x = p[0] - moveOff.from[0];
-    moveOff.y = p[1] - moveOff.from[1];
+    tf.dx = p[0] - tf.from[0];
+    tf.dy = p[1] - tf.from[1];
     redrawAll();
     return;
   }
@@ -583,20 +616,11 @@ draw.addEventListener("pointermove", e=>{
   paintLive();
 });
 function endStroke(e){
-  if(moveOff){
+  if(tf){
     if(e && e.pointerId !== activeId) return;
-    const list = currentStrokes();
-    const dx = moveOff.x, dy = moveOff.y;
-    moveOff = null; activeId = null;
-    // ほとんど動いていないなら何も残さない
-    if(list && (Math.abs(dx) > 1 || Math.abs(dy) > 1)){
-      shiftStrokes(list, dx, dy);
-      const ops = opsOf(), rops = redoOpsOf();
-      if(ops){ ops.push({ k:"m", dx, dy }); if(rops) rops.length = 0; }
-      if(layer === "back") saveBackground();
-      else if(frames[current]) saveFrame(frames[current]);
-    }
-    redrawAll(); rebuildStrip(); refresh();
+    const dx = tf.dx, dy = tf.dy, k = tf.k;
+    tf = null; activeId = null;
+    commitMove(dx, dy, k);
     return;
   }
   if(!drawing || (e && e.pointerId !== activeId)) return;
@@ -634,14 +658,34 @@ function paintLive(){
   }
 }
 
+/* 移動と大きさをまとめて1件として確定する。
+   ほとんど変わっていないなら履歴を汚さない。 */
+function commitMove(dx, dy, k){
+  const list = currentStrokes();
+  const moved = Math.abs(dx) > 1 || Math.abs(dy) > 1;
+  const scaled = Math.abs(k - 1) > 0.001;
+  if(list && (moved || scaled)){
+    transformStrokes(list, dx, dy, k);
+    const ops = opsOf(), rops = redoOpsOf();
+    if(ops){ ops.push({ k:"t", dx, dy, s:k }); if(rops) rops.length = 0; }
+    if(layer === "back") saveBackground();
+    else if(frames[current]) saveFrame(frames[current]);
+  }
+  // つまみは毎回 100% に戻す。続けて動かしても掛け算が積み上がらないようにする。
+  pendK = 1;
+  $("#movePct").value = 100;
+  $("#movePctV").textContent = "100%";
+  redrawAll(); rebuildStrip(); refresh();
+}
+
 /* ---------- 取り消す / やり直す ---------- */
 function undo(){
   if(playing) return;
   const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
   if(!ops || !ops.length || !list) return;
   const op = ops.pop();
-  if(op.k === "m"){
-    shiftStrokes(list, -op.dx, -op.dy);     // ずらしは逆向きに戻す
+  if(op.k === "t" || op.k === "m"){
+    untransformStrokes(list, op.dx, op.dy, op.s === undefined ? 1 : op.s);
     rops.push(op);
   }else{
     const st = list.pop();
@@ -655,8 +699,8 @@ function redo(){
   const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
   if(!rops || !rops.length || !list) return;
   const op = rops.pop();
-  if(op.k === "m"){
-    shiftStrokes(list, op.dx, op.dy);
+  if(op.k === "t" || op.k === "m"){
+    transformStrokes(list, op.dx, op.dy, op.s === undefined ? 1 : op.s);
     ops.push(op);
   }else{
     list.push(op.st);
@@ -1156,7 +1200,30 @@ seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
 seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
 seg("#eraseSeg", v=>{ eraseKind = v; saveState(); });
 seg("#eraseSizeSeg", v=>{ eraseSize = v; saveState(); });
-seg("#modeSeg", v=>{ mode = v; paper.style.cursor = (v === "move") ? "grab" : ""; });
+seg("#modeSeg", v=>{
+  mode = v;
+  paper.style.cursor = (v === "move") ? "grab" : "";
+  $("#moveBlock").hidden = (v !== "move");
+  // 描くほうへ戻すときは、当てかけの倍率を捨てる
+  if(v !== "move"){ tf = null; pendK = 1;
+    $("#movePct").value = 100; $("#movePctV").textContent = "100%"; redrawAll(); }
+});
+
+/* つまみを動かしている間は表示だけ変え、離したところで確定する。 */
+$("#movePct").oninput = e=>{
+  if(mode !== "move") return;
+  pendK = +e.target.value / 100;
+  $("#movePctV").textContent = e.target.value + "%";
+  if(tf) tf.k = pendK;
+  else tf = { dx:0, dy:0, k:pendK, from:[0,0] };
+  redrawAll();
+};
+$("#movePct").onchange = ()=>{
+  if(mode !== "move" || !tf) return;
+  const dx = tf.dx, dy = tf.dy, k = tf.k;
+  tf = null;
+  commitMove(dx, dy, k);
+};
 seg("#paperSeg", v=>{ paperSize = v; saveState(); layout(); });
 seg("#fpsSeg", v=>{ fps = +v; saveState(); refresh();
   if(playing){ togglePlay(); togglePlay(); } });
