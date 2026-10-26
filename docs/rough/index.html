@@ -211,6 +211,12 @@
       <span class="val" id="backOpV">60%</span>
     </div>
 
+    <span class="lbl">再生</span>
+    <div class="row">
+      <label style="min-width:0;font-size:12px;color:var(--ink)">
+        <input type="checkbox" id="loopOn" checked> ループ再生</label>
+    </div>
+
     <span class="lbl">再生 fps</span>
     <div class="seg" id="fpsSeg">
       <button data-v="6">6</button><button data-v="8">8</button>
@@ -235,13 +241,21 @@
     <div class="count" id="exportMsg"></div>
 
     <div class="row" style="justify-content:center;margin-top:14px">
-      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">全部消す</button>
+      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">描いたものを全部消す</button>
+    </div>
+    <div class="row" style="justify-content:center;margin:2px 0 0">
+      <button class="icon" id="resetAll"
+              style="width:auto;padding:0 12px;font-size:11px;color:#e2574c;border-color:#5a3330">リセット（次の人へ渡す）</button>
     </div>
 
     <p class="note">
       Apple Pencil や スタイラスの筆圧に対応しています。<br>
       ペンを使うと、手のひらが触れても描きません。<br><br>
-      コマを長押しすると長さや削除を選べます。<br>
+      コマを長押しすると長さや削除を選べます。<br><br>
+      <strong>enter</strong> 新しいコマ（n も可）<br>
+      <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
+      <strong>4</strong> <strong>6</strong> コマ送り（← → も可）<br>
+      <strong>del</strong> 見ているコマを削除 / <strong>⌘Z</strong> 取り消す<br><br>
       ホーム画面に追加すると全画面で使えます。<br>
       描いたものは端末に残るので、閉じても続けられます。<br><br>
       <a href="../">線画撮りくん（カメラでコマ撮り）へ</a>
@@ -284,6 +298,7 @@ let outSize = "fhd";
 
 let playing = false, playPos = 0, playSeq = [], timer = null;
 let loading = false, exporting = false;
+let loopPlay = true;          // 最後まで行ったら頭に戻すか
 const HOLDS = [1,2,3,4,6,8,12,24,48];
 let holdTarget = null;
 
@@ -578,6 +593,12 @@ function deleteFrame(i){
   current = Math.min(current, frames.length - 1);
   saveState(); redrawAll(); rebuildStrip(); refresh();
 }
+/* キーから消すときの相手。いま見ているコマ。
+   描く相手が無くなると困るので、1枚しかない時は消さない。 */
+function deleteCurrent(){
+  if(playing || exporting || frames.length <= 1) return;
+  deleteFrame(current);
+}
 function expanded(){
   const out = [];
   frames.forEach((f,i)=>{ const n = Math.max(1, f.hold||1); for(let k=0;k<n;k++) out.push(i); });
@@ -678,11 +699,26 @@ function togglePlay(){
     if(totalLength() < 2) return;
     playing = true; playSeq = expanded(); playPos = 0;
     timer = setInterval(()=>{
+      if(playPos + 1 >= playSeq.length && !loopPlay){
+        // 最後まで来たら止める。頭に戻らず、最後のコマを出したままにする。
+        const last = playSeq[playSeq.length - 1];
+        clearInterval(timer); timer = null; playing = false;
+        current = last;
+        loadFromFrame();
+        redrawAll(); rebuildStrip(); refresh();
+        return;
+      }
       playPos = (playPos + 1) % playSeq.length;
       redrawAll(); refresh();
     }, 1000/fps);
   }
   redrawAll(); rebuildStrip(); refresh();
+}
+
+/* 再生を止めた後に描く相手を合わせる。
+   この版は常に frames[current] へ描くので、位置を合わせるだけでよい。 */
+function loadFromFrame(){
+  current = Math.max(0, Math.min(frames.length - 1, current));
 }
 
 /* ---------- 表示の更新 ---------- */
@@ -770,7 +806,7 @@ function saveState(){
       key:"state", order: frames.map(f=>f.id),
       holds: frames.map(f=>Math.max(1,f.hold||1)),
       nextId, current, fps, onionOn, onionOp, onionN, backOp,
-      tool, ink, lineW, eraseKind, eraseSize, outSize,
+      tool, ink, lineW, eraseKind, eraseSize, outSize, loopPlay,
       outName: $("#outName").value
     });
   }catch(e){}
@@ -794,6 +830,7 @@ async function loadSaved(){
     if(st.eraseSize){ eraseSize = st.eraseSize; markSeg("#eraseSizeSeg", eraseSize); }
     if(st.outSize){ outSize = st.outSize; markSeg("#sizeSeg", outSize); }
     if(st.outName) $("#outName").value = st.outName;
+    if(typeof st.loopPlay === "boolean"){ loopPlay = st.loopPlay; $("#loopOn").checked = loopPlay; }
     if(typeof st.onionOn === "boolean"){ onionOn = st.onionOn; $("#onionOn").checked = onionOn; }
     if(typeof st.onionOp === "number"){ onionOp = st.onionOp;
       $("#onionOp").value = Math.round(onionOp*100); $("#onionOpV").textContent = Math.round(onionOp*100)+"%"; }
@@ -989,6 +1026,7 @@ $("#redo").onclick = redo;
 $("#exportBtn").onclick = exportMovie;
 $("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
+$("#loopOn").onchange = e=>{ loopPlay = e.target.checked; saveState(); };
 
 seg("#layerSeg", v=>{ layer = v; redrawAll(); refresh(); });
 seg("#toolSeg", v=>{ tool = v; syncTool(); saveState(); });
@@ -1022,6 +1060,18 @@ $("#holdDelete").onclick = ()=>{
 };
 $("#holdPick").onclick = e=>{ if(e.target.id === "holdPick") closeHold(); };
 
+/* 次の人に渡すためのリセット。
+   絵も設定も残さない。設定を一つずつ戻すより、保存を消して
+   開き直すほうが確実で、初めて開いたときと同じ状態になる。 */
+$("#resetAll").onclick = async ()=>{
+  if(exporting) return;
+  if(!confirm("描いたものと設定を全部消して、最初の状態に戻します。\n次の人に渡すときに使ってください。戻せません。")) return;
+  if(playing) togglePlay();
+  await clearSaved();
+  await new Promise(r=>setTimeout(r, 300));   // 消し終わるのを待つ
+  location.reload();
+};
+
 $("#clearAll").onclick = async ()=>{
   if(playing || exporting) return;
   if(!confirm("描いたものを全部消します。戻せません。")) return;
@@ -1032,15 +1082,28 @@ $("#clearAll").onclick = async ()=>{
   redrawAll(); rebuildStrip(); refresh();
 };
 
+/* ショートカットは線画撮りくんに揃えてある。
+   向こうの enter は「撮影」で、こちらでは「新しいコマ」。
+   どちらも次の1枚へ進む操作なので同じ指で通せる。 */
 window.addEventListener("keydown", e=>{
-  if(e.target.tagName === "INPUT") return;
+  const t = e.target.tagName;
+  if(t === "INPUT" || t === "SELECT" || t === "TEXTAREA") return;
   const k = e.key;
   const meta = e.metaKey || e.ctrlKey;
-  if(meta && k.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
-  else if(k === "Enter"){ e.preventDefault(); togglePlay(); }
-  else if(k === "ArrowLeft"){ e.preventDefault(); go(current - 1); }
-  else if(k === "ArrowRight"){ e.preventDefault(); go(current + 1); }
-  else if(k === "n" || k === "N"){ e.preventDefault(); addFrame(); }
+  if(meta && k.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if(meta || e.altKey) return;
+  if(k === "Enter" || k === "n" || k === "N"){ e.preventDefault(); addFrame(); }
+  else if(k === "0"){ e.preventDefault(); togglePlay(); }
+  else if(k === "4" || k === "ArrowLeft"){ e.preventDefault(); go(current - 1); }
+  else if(k === "6" || k === "ArrowRight"){ e.preventDefault(); go(current + 1); }
+  else if(k === "8"){
+    e.preventDefault();
+    loopPlay = !loopPlay;
+    $("#loopOn").checked = loopPlay;
+    saveState();
+  }
+  else if(k === "Backspace" || k === "Delete"){ e.preventDefault(); deleteCurrent(); }
+  else if(k === "Escape"){ e.preventDefault(); closeHold(); }
 });
 
 buildInks();

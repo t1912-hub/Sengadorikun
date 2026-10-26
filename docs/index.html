@@ -274,7 +274,11 @@
     <div class="count" id="exportMsg"></div>
 
     <div class="row" style="justify-content:center;margin-top:14px">
-      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">全部消す</button>
+      <button class="icon" id="clearAll" style="width:auto;padding:0 12px;font-size:11px">コマを全部消す</button>
+    </div>
+    <div class="row" style="justify-content:center;margin:2px 0 0">
+      <button class="icon" id="resetAll"
+              style="width:auto;padding:0 12px;font-size:11px;color:#e2574c;border-color:#5a3330">リセット（次の人へ渡す）</button>
     </div>
 
     <p class="note">
@@ -1152,6 +1156,19 @@ $("#holdAll").onclick = ()=>{
   rebuildStrip(); refresh(); saveState(); closeHold();
 };
 $("#holdPick").onclick = e=>{ if(e.target.id === "holdPick") closeHold(); };
+
+/* 次の人に渡すためのリセット。
+   コマも設定も残さない。設定を一つずつ戻すより、保存を消して
+   開き直すほうが確実で、初めて開いたときと同じ状態になる。
+   カメラの選択だけは端末の都合なので、消えても次に開けば選び直せる。 */
+$("#resetAll").onclick = async ()=>{
+  if(exporting) return;
+  if(!confirm("撮ったコマと設定を全部消して、最初の状態に戻します。\n次の人に渡すときに使ってください。戻せません。")) return;
+  if(playing) togglePlay();
+  await clearSaved();
+  await new Promise(r=>setTimeout(r, 300));   // 消し終わるのを待つ
+  location.reload();
+};
 
 $("#clearAll").onclick = async ()=>{
   if(playing) return;
