@@ -188,8 +188,7 @@
 
     <span class="lbl">道具</span>
     <div class="seg" id="toolSeg">
-      <button data-v="pencil" class="on">鉛筆</button>
-      <button data-v="pen">ペン</button>
+      <button data-v="pen" class="on">ペン</button>
       <button data-v="eraser">消しゴム</button>
     </div>
 
@@ -200,6 +199,10 @@
         <label>太さ</label>
         <input type="range" id="lineW" min="1" max="30" value="6">
         <span class="val" id="lineWV">6</span>
+      </div>
+      <div class="row">
+        <button class="icon" id="clearDraft"
+                style="width:100%;height:32px;font-size:11px">水色と赤を全部消す</button>
       </div>
     </div>
 
@@ -284,6 +287,8 @@
       レイアウトを直したいときは「ずらす」に切り替えます。
       画面をなぞると絵がまるごと動き、「大きさ」で拡大縮小できます。<br>
       ペンを使うと、手のひらが触れても描きません。<br><br>
+      水色と赤は下書き用の色です。「水色と赤を全部消す」でまとめて片付きます。
+      取り消しで戻せます。<br>
       コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br><br>
       <strong>enter</strong> 新しいコマ（n も可）<br>
       <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
@@ -318,7 +323,11 @@ let current = 0;
 let nextId = 1;
 
 let layer = "art";            // art | back
-let tool = "pencil";
+/* 道具はペンと消しゴムだけ。ブラウザでは PencilKit のような
+   鉛筆の質感が出せず、ペンとの違いが曖昧になるため置かない。
+   描画の処理は残してあるので、前に鉛筆やマーカーで描いた線は
+   そのまま表示される。 */
+let tool = "pen";
 let ink = "#1a1a1a";
 let lineW = 6;
 let eraseKind = "all";        // all | draft
@@ -684,7 +693,14 @@ function undo(){
   const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
   if(!ops || !ops.length || !list) return;
   const op = ops.pop();
-  if(op.k === "t" || op.k === "m"){
+  if(op.k === "d"){
+    // 覚えておいた位置へ戻す。removed は後ろから集めてあるので逆順に差し込む。
+    for(let j = op.removed.length - 1; j >= 0; j--){
+      const r = op.removed[j];
+      list.splice(Math.min(r.i, list.length), 0, r.st);
+    }
+    rops.push(op);
+  }else if(op.k === "t" || op.k === "m"){
     untransformStrokes(list, op.dx, op.dy, op.s === undefined ? 1 : op.s);
     rops.push(op);
   }else{
@@ -699,7 +715,10 @@ function redo(){
   const ops = opsOf(), rops = redoOpsOf(), list = currentStrokes();
   if(!rops || !rops.length || !list) return;
   const op = rops.pop();
-  if(op.k === "t" || op.k === "m"){
+  if(op.k === "d"){
+    for(const r of op.removed) list.splice(r.i, 1);   // 後ろから並んでいるのでそのまま
+    ops.push(op);
+  }else if(op.k === "t" || op.k === "m"){
     transformStrokes(list, op.dx, op.dy, op.s === undefined ? 1 : op.s);
     ops.push(op);
   }else{
@@ -707,6 +726,30 @@ function redo(){
     ops.push({ k:"s" });
   }
   if(layer === "back") saveBackground(); else saveFrame(frames[current]);
+  redrawAll(); rebuildStrip(); refresh();
+}
+
+/* 下書き用の色（水色・赤）で描いた線をまとめて取り除く。
+   なぞって消す「下書きだけ」とは別で、一気に片付けるためのもの。
+   下書きだけを消す消しゴムの線も一緒に捨てる。残しても相手がいない。
+   戻せるように、取り除いた線と元の位置を覚えておく。 */
+function clearDraft(){
+  if(playing || exporting) return;
+  const list = currentStrokes();
+  if(!list) return;
+  const removed = [];
+  // 後ろから抜く。前から抜くと位置がずれる。
+  for(let i = list.length - 1; i >= 0; i--){
+    const st = list[i];
+    const isDraftInk = !st.erase && isDraft(st.color);
+    const isDraftEraser = st.erase === 2;
+    if(isDraftInk || isDraftEraser) removed.push({ i, st: list.splice(i, 1)[0] });
+  }
+  if(!removed.length) return;
+  const ops = opsOf(), rops = redoOpsOf();
+  if(ops){ ops.push({ k:"d", removed }); if(rops) rops.length = 0; }
+  if(layer === "back") saveBackground();
+  else if(frames[current]) saveFrame(frames[current]);
   redrawAll(); rebuildStrip(); refresh();
 }
 
@@ -987,8 +1030,11 @@ async function loadSaved(){
   if(st){
     if(st.fps){ fps = st.fps; markSeg("#fpsSeg", fps); }
     if(st.paperSize){ paperSize = st.paperSize; markSeg("#paperSeg", paperSize); }
-    // マーカーは廃止したので、保存されていても鉛筆に寄せる
-    if(st.tool){ tool = (st.tool === "marker") ? "pencil" : st.tool; markSeg("#toolSeg", tool); }
+    // 廃止した道具が保存されていてもペンに寄せる
+    if(st.tool){
+      tool = (st.tool === "eraser") ? "eraser" : "pen";
+      markSeg("#toolSeg", tool);
+    }
     if(st.ink) ink = st.ink;
     if(st.lineW){ lineW = st.lineW; $("#lineW").value = lineW; $("#lineWV").textContent = lineW; }
     if(st.eraseKind){ eraseKind = st.eraseKind; markSeg("#eraseSeg", eraseKind); }
@@ -1230,6 +1276,7 @@ seg("#fpsSeg", v=>{ fps = +v; saveState(); refresh();
 seg("#sizeSeg", v=>{ outSize = v; saveState(); });
 
 $("#lineW").oninput = e=>{ lineW = +e.target.value; $("#lineWV").textContent = lineW; saveState(); };
+$("#clearDraft").onclick = clearDraft;
 $("#onionOn").onchange = e=>{ onionOn = e.target.checked; redrawAll(); saveState(); };
 $("#onionOp").oninput = e=>{ onionOp = +e.target.value/100;
   $("#onionOpV").textContent = e.target.value + "%"; redrawAll(); saveState(); };
