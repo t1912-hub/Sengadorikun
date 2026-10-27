@@ -250,6 +250,26 @@
       <span class="val" id="safetyVal">90%</span>
     </div>
 
+    <span class="lbl">プロジェクト</span>
+    <div class="row">
+      <input type="text" id="projName" placeholder="名前を付けて保存"
+             style="flex:1;min-width:0;background:#2a2a2e;color:var(--ink);
+                    border:1px solid var(--line);border-radius:7px;padding:6px 8px;
+                    font-family:inherit;font-size:12px">
+      <button class="icon" id="projSave" style="width:auto;padding:0 10px;font-size:11px">保存</button>
+    </div>
+    <div class="row">
+      <select id="projList" style="flex:1;min-width:0;background:#2a2a2e;color:var(--ink);
+              border:1px solid var(--line);border-radius:7px;padding:6px 8px;
+              font-family:inherit;font-size:12px"></select>
+    </div>
+    <div class="row">
+      <button class="icon" id="projOpen" style="flex:1;width:auto;font-size:11px">開く</button>
+      <button class="icon" id="projDelete"
+              style="flex:1;width:auto;font-size:11px;color:#e2574c;border-color:#5a3330">削除</button>
+    </div>
+    <div class="count" id="projMsg"></div>
+
     <span class="lbl">書き出し</span>
     <div class="row">
       <label>名前</label>
@@ -290,7 +310,8 @@
       動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
       尺を正確にしたいときは PNG連番 を使ってください。<br>
       ホーム画面に追加すると全画面で使えます。<br>
-      撮ったコマは端末に残るので、閉じても続けられます。<br><br>
+      撮ったコマは端末に残るので、閉じても続けられます。<br>
+      名前を付けて保存すると、いくつも持っておいて開き直せます。<br><br>
       <a href="rough/" style="color:var(--amber)">ラフガキちゃん（ペンでラフを描く）へ</a>
     </p>
   </div>
@@ -761,18 +782,20 @@ function togglePlay(){
    撮影ごとに1枚だけ書き込み、並び順は別の記録に持つ。
    毎回まとめて書き直すと、コマが増えるほど遅くなるため。
    どの段階で失敗しても撮影だけは続けられるように、全て黙って諦める作りにする。 */
-const DB_NAME = "sengadori", F_STORE = "frames", M_STORE = "meta";
+const DB_NAME = "sengadori", F_STORE = "frames", M_STORE = "meta", P_STORE = "saves";
 let db = null, saveTimer = null;
 
 function openDB(){
   return new Promise(res=>{
     if(!window.indexedDB) return res(null);
     let rq;
-    try{ rq = indexedDB.open(DB_NAME, 1); }catch(e){ return res(null); }
+    // 2 で、名前を付けて残す置き場を足した
+    try{ rq = indexedDB.open(DB_NAME, 2); }catch(e){ return res(null); }
     rq.onupgradeneeded = ()=>{
       const d = rq.result;
       if(!d.objectStoreNames.contains(F_STORE)) d.createObjectStore(F_STORE, { keyPath:"id" });
       if(!d.objectStoreNames.contains(M_STORE)) d.createObjectStore(M_STORE, { keyPath:"key" });
+      if(!d.objectStoreNames.contains(P_STORE)) d.createObjectStore(P_STORE, { keyPath:"name" });
     };
     rq.onsuccess = ()=>res(rq.result);
     rq.onerror   = ()=>res(null);
@@ -833,9 +856,16 @@ function saveState(){
     }catch(e){}
   }, 250);
 }
+/* いま触っているものだけを消す。名前を付けて残したものには手を付けない。 */
 async function clearSaved(){
   if(!db) return;
   try{ store(F_STORE, "readwrite").clear(); store(M_STORE, "readwrite").clear(); }catch(e){}
+}
+/* リセットは名前を付けたものも含めて全部消す。次の人に渡すため。 */
+async function clearEverything(){
+  if(!db) return;
+  try{ store(F_STORE, "readwrite").clear(); store(M_STORE, "readwrite").clear();
+       store(P_STORE, "readwrite").clear(); }catch(e){}
 }
 async function blobToCanvas(png){
   const draw = img =>{
@@ -1129,6 +1159,111 @@ function syncMoveButtons(){
     (i + 1) + "コマ目 / 全" + frames.length + "コマ（" + fps + "fps）";
 }
 
+/* ---------- 名前を付けたプロジェクト ----------
+   いま触っているものは今までどおり自動で残り続ける。そこへ
+   「名前を付けて残す置き場」を別に設けた。保存は今の中身の写しを
+   その名前で置くだけ、開くのはその写しを今の場所へ戻すだけ。
+   記録の付け方を変えずに済むので、動いている自動保存を壊さない。
+   コマは置いてある WebP をそのまま写すので、作り直しも変換も起きない。 */
+function listAll(name){
+  return new Promise(res=>{
+    try{ const r = store(name, "readonly").getAll();
+         r.onsuccess = ()=>res(r.result || []); r.onerror = ()=>res([]); }
+    catch(e){ res([]); }
+  });
+}
+async function refreshProjects(selectName){
+  const sel = $("#projList");
+  if(!db){ sel.innerHTML = '<option value="">保存できません</option>'; return; }
+  const rows = await listAll(P_STORE);
+  rows.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+  sel.innerHTML = "";
+  if(!rows.length){
+    const o = document.createElement("option");
+    o.textContent = "（まだありません）"; o.value = "";
+    sel.appendChild(o);
+  }else{
+    for(const r of rows){
+      const o = document.createElement("option");
+      const d = new Date(r.savedAt || 0);
+      const stamp = isNaN(d.getTime()) ? "" :
+        "  " + (d.getMonth()+1) + "/" + d.getDate() + " " +
+        String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+      o.value = r.name;
+      o.textContent = r.name + "（" + (r.frames ? r.frames.length : 0) + "コマ）" + stamp;
+      sel.appendChild(o);
+    }
+  }
+  if(selectName) sel.value = selectName;
+  const none = !rows.length;
+  $("#projOpen").disabled = none;
+  $("#projDelete").disabled = none;
+}
+
+async function saveProject(){
+  if(!db){ $("#projMsg").textContent = "この端末では保存できません。"; return; }
+  if(playing || exporting) return;
+  if(!frames.length){ $("#projMsg").textContent = "1コマ以上撮ってください。"; return; }
+  const name = ($("#projName").value || "").trim();
+  if(!name){ $("#projMsg").textContent = "名前を入れてください。"; return; }
+  const existing = await get(P_STORE, name);
+  if(existing && !confirm("「" + name + "」を上書きします。よろしいですか。")) return;
+  $("#projMsg").textContent = "保存しています…";
+  const shots = [];
+  for(const f of frames){
+    const rec = await get(F_STORE, f.id);
+    if(rec && rec.png) shots.push({ id:f.id, png:rec.png, hold:Math.max(1,f.hold||1) });
+  }
+  if(!shots.length){ $("#projMsg").textContent = "保存できませんでした。"; return; }
+  try{
+    store(P_STORE, "readwrite").put({
+      name, savedAt: Date.now(), frames: shots, nextId,
+      fps, aspect, bin: JSON.parse(JSON.stringify(bin)),
+      view: { zoom: view.zoom, px: view.px, py: view.py }
+    });
+  }catch(e){ $("#projMsg").textContent = "保存できませんでした。"; return; }
+  await new Promise(r=>setTimeout(r, 250));
+  await refreshProjects(name);
+  $("#projMsg").textContent = "「" + name + "」を保存しました（" + shots.length + "コマ）。";
+}
+
+async function openProject(){
+  if(!db || playing || exporting) return;
+  const name = $("#projList").value;
+  if(!name) return;
+  const rec = await get(P_STORE, name);
+  if(!rec){ $("#projMsg").textContent = "見つかりませんでした。"; return; }
+  if(!confirm("「" + name + "」を開きます。いま撮っているコマは置き換わります。\n\n"
+            + "残したい場合は、先に名前を付けて保存してください。")) return;
+  try{
+    store(F_STORE, "readwrite").clear();
+    store(M_STORE, "readwrite").clear();
+    const fs = store(F_STORE, "readwrite");
+    for(const f of rec.frames) fs.put({ id:f.id, png:f.png });
+    store(M_STORE, "readwrite").put({
+      key:"state", order: rec.frames.map(f=>f.id),
+      holds: rec.frames.map(f=>Math.max(1,f.hold||1)),
+      nextId: rec.nextId || (rec.frames.reduce((m,f)=>Math.max(m,f.id), 0) + 1),
+      fps: rec.fps || 12, aspect: rec.aspect || "wide",
+      bin: rec.bin || bin, view: rec.view || { zoom:1, px:0.5, py:0.5 },
+      outName: $("#outName").value, outSize, camId, loopPlay
+    });
+  }catch(e){ $("#projMsg").textContent = "開けませんでした。"; return; }
+  await new Promise(r=>setTimeout(r, 300));
+  location.reload();
+}
+
+async function deleteProject(){
+  if(!db) return;
+  const name = $("#projList").value;
+  if(!name) return;
+  if(!confirm("「" + name + "」を消します。戻せません。")) return;
+  try{ store(P_STORE, "readwrite").delete(name); }catch(e){}
+  await new Promise(r=>setTimeout(r, 200));
+  await refreshProjects();
+  $("#projMsg").textContent = "「" + name + "」を消しました。";
+}
+
 /* ---------- 配線 ---------- */
 $("#shutter").onclick = capture;
 $("#undo").onclick = undo;
@@ -1136,6 +1271,9 @@ $("#play").onclick = togglePlay;
 $("#prev").onclick = ()=>step(-1);
 $("#next").onclick = ()=>step(1);
 $("#live").onclick = ()=>{ selected=null; refresh(); };
+$("#projSave").onclick = saveProject;
+$("#projOpen").onclick = openProject;
+$("#projDelete").onclick = deleteProject;
 $("#exportBtn").onclick = exportMovie;
 $("#pngBtn").onclick = exportPNGs;
 $("#outName").onchange = saveState;
@@ -1163,9 +1301,9 @@ $("#holdPick").onclick = e=>{ if(e.target.id === "holdPick") closeHold(); };
    カメラの選択だけは端末の都合なので、消えても次に開けば選び直せる。 */
 $("#resetAll").onclick = async ()=>{
   if(exporting) return;
-  if(!confirm("撮ったコマと設定を全部消して、最初の状態に戻します。\n次の人に渡すときに使ってください。戻せません。")) return;
+  if(!confirm("撮ったコマと設定を全部消して、最初の状態に戻します。\n名前を付けて保存したものも消えます。\n次の人に渡すときに使ってください。戻せません。")) return;
   if(playing) togglePlay();
-  await clearSaved();
+  await clearEverything();
   await new Promise(r=>setTimeout(r, 300));   // 消し終わるのを待つ
   location.reload();
 };
@@ -1327,7 +1465,7 @@ applyView();
 cam.addEventListener("loadedmetadata", layout);
 startCamera(null);
 refresh();
-loadSaved();
+loadSaved().then(()=>refreshProjects());
 </script>
 </body>
 </html>
