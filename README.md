@@ -5,8 +5,8 @@
 
 **ブラウザ版はこちらから、インストールせずに使えます。**
 
-- 線画撮りくん https://t1912-hub.github.io/Sengadorikun/
-- ラフガキちゃん https://t1912-hub.github.io/Sengadorikun/rough/
+- 線画撮りくん https://hakenlabo.github.io/Sengadorikun/
+- ラフガキちゃん https://hakenlabo.github.io/Sengadorikun/rough/
 
 ---
 
