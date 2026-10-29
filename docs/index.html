@@ -93,7 +93,11 @@
      これを書かないと hidden が効かず、空の重ね画面が出たまま操作を奪う。 */
   #holdPick[hidden]{ display:none; }
   #holdPick .card{ background:var(--panel); border:1px solid var(--line);
-    border-radius:12px; padding:16px 18px; min-width:260px; }
+    border-radius:12px; padding:16px 18px; min-width:260px;
+    /* iPhone を横に持つと縦が足りず、下のボタンに指が届かなくなる。
+       収まらないぶんはカードの中で送れるようにしておく。 */
+    max-height:calc(100vh - 20px); max-height:calc(100dvh - 20px);
+    overflow-y:auto; -webkit-overflow-scrolling:touch; }
   #holdPick .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
   #holdPick .grid button{ padding:11px 0; background:#2a2a2e; color:var(--ink);
     border:1px solid var(--line); border-radius:8px; font-size:13px; }
@@ -130,6 +134,11 @@
     <div class="foot">
       <button id="moveLeft">◀ 前へ</button>
       <button id="moveRight">後ろへ ▶</button>
+    </div>
+    <span class="lbl">このコマを写す</span>
+    <div class="foot">
+      <button id="holdCopy">コピー</button>
+      <button id="holdPaste">すぐ後ろに貼る</button>
     </div>
     <div class="foot">
       <button id="holdAll">全部に適用</button>
@@ -305,8 +314,12 @@
       <strong>enter</strong> 撮影（space も可）<br>
       <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
       <strong>4</strong> <strong>6</strong> コマ送り（← → も可）<br>
-      <strong>del</strong> 見ているコマを削除 / <strong>esc</strong> ライブに戻る<br><br>
-      コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br>
+      <strong>del</strong> 見ているコマを削除 / <strong>esc</strong> ライブに戻る<br>
+      <strong>⌘C</strong> コマをコピー / <strong>⌘V</strong> すぐ後ろに貼る<br><br>
+      コマを長押しすると、長さを変えたり、前後へ動かしたり、
+      コピーしたり、消したりできます。<br>
+      コピーして貼ると同じ絵のコマが増えます。
+      離れた位置で同じ絵をもう一度使うときに便利です。<br>
       動画は実時間で録るので、作品と同じ長さの時間がかかります。<br>
       尺を正確にしたいときは PNG連番 を使ってください。<br>
       ホーム画面に追加すると全画面で使えます。<br>
@@ -1136,6 +1149,41 @@ function deleteCurrent(){
   deleteFrame(selected !== null ? selected : frames.length - 1);
 }
 
+/* ---------- コマを写す ----------
+   同じ絵をもう一度使うための写し。止めの絵を伸ばすだけなら長さを
+   変えれば済むが、離れた位置へ同じ絵を置きたいときはこちらを使う。
+   絵は新しい板に描き写す。同じ板を使い回すと、2値化の設定を
+   変えたときに両方のコマが同じものを指してしまう。 */
+let clip = null;              // 写したコマ { raw:canvas, hold }
+
+function cloneCanvas(src){
+  const c = document.createElement("canvas");
+  c.width = src.width; c.height = src.height;
+  c.getContext("2d").drawImage(src, 0, 0);
+  return c;
+}
+function copyFrame(i){
+  const f = frames[i];
+  if(!f) return false;
+  clip = { raw: cloneCanvas(f.raw), hold: Math.max(1, f.hold||1) };
+  return true;
+}
+/* at のすぐ後ろに差し込む。長さも一緒に写す。
+   見え方はいまの2値化の設定で作り直すので、写した後で設定を
+   変えても他のコマと揃う。 */
+function pasteFrame(at){
+  if(playing || exporting || !clip) return false;
+  const raw = cloneCanvas(clip.raw);
+  const f = { id: nextId++, raw, disp: processed(raw), hold: clip.hold };
+  const to = Math.min(Math.max(0, at + 1), frames.length);
+  frames.splice(to, 0, f);
+  selected = to;
+  holdTarget = to;
+  saveFrame(f); saveState();
+  rebuildStrip(); refresh();
+  return true;
+}
+
 /* コマの並びを入れ替える。
    何度も押して動かせるよう、ダイアログは開いたままにして
    相手を新しい位置へ付け替える。 */
@@ -1155,6 +1203,9 @@ function syncMoveButtons(){
   const i = holdTarget;
   $("#moveLeft").disabled  = i === null || i <= 0;
   $("#moveRight").disabled = i === null || i >= frames.length - 1;
+  $("#holdCopy").disabled  = i === null;
+  // 何も写していなければ貼れない。押せるようになったことが写せた合図。
+  $("#holdPaste").disabled = i === null || !clip;
   if(i !== null) $("#holdTitle").textContent =
     (i + 1) + "コマ目 / 全" + frames.length + "コマ（" + fps + "fps）";
 }
@@ -1271,6 +1322,9 @@ $("#play").onclick = togglePlay;
 $("#prev").onclick = ()=>step(-1);
 $("#next").onclick = ()=>step(1);
 $("#live").onclick = ()=>{ selected=null; refresh(); };
+/* 写しも貼りも画面は閉じない。続けて何枚も貼れるようにするため。 */
+$("#holdCopy").onclick  = ()=>{ if(copyFrame(holdTarget)) openHold(holdTarget); };
+$("#holdPaste").onclick = ()=>{ if(pasteFrame(holdTarget)) openHold(holdTarget); };
 $("#projSave").onclick = saveProject;
 $("#projOpen").onclick = openProject;
 $("#projDelete").onclick = deleteProject;
@@ -1444,6 +1498,12 @@ $("#safety").oninput = e=>{ $("#safetyVal").textContent = e.target.value+"%"; dr
 window.addEventListener("keydown", e=>{
   const t = e.target.tagName;
   if(t === "INPUT" || t === "SELECT" || t === "TEXTAREA") return;
+  // 相手は見ているコマ。ライブなら一番後ろのコマ。削除と同じ決め方。
+  const target = ()=> selected !== null ? selected : frames.length - 1;
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c"){
+    e.preventDefault(); if(frames.length) copyFrame(target()); return; }
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v"){
+    e.preventDefault(); if(frames.length) pasteFrame(target()); return; }
   if(e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key;
   if(k === "Enter" || k === " "){ e.preventDefault(); capture(); }

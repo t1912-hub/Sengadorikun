@@ -95,7 +95,11 @@
   /* id 指定の display:flex は [hidden]{display:none} より強いので打ち消す */
   #holdPick[hidden]{ display:none; }
   #holdPick .card{ background:var(--panel); border:1px solid var(--line);
-    border-radius:12px; padding:16px 18px; min-width:280px; }
+    border-radius:12px; padding:16px 18px; min-width:280px;
+    /* iPhone を横に持つと縦が足りず、下のボタンに指が届かなくなる。
+       収まらないぶんはカードの中で送れるようにしておく。 */
+    max-height:calc(100vh - 20px); max-height:calc(100dvh - 20px);
+    overflow-y:auto; -webkit-overflow-scrolling:touch; }
   #holdPick .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 4px; }
   #holdPick .grid button{ padding:11px 0; background:#2a2a2e; color:var(--ink);
     border:1px solid var(--line); border-radius:8px; font-size:13px; }
@@ -128,6 +132,11 @@
     <div class="foot">
       <button id="moveLeft">◀ 前へ</button>
       <button id="moveRight">後ろへ ▶</button>
+    </div>
+    <span class="lbl">このコマを写す</span>
+    <div class="foot">
+      <button id="holdCopy">コピー</button>
+      <button id="holdPaste">すぐ後ろに貼る</button>
     </div>
     <div class="foot">
       <button id="holdAll">全部に適用</button>
@@ -307,13 +316,17 @@
       ペンを使うと、手のひらが触れても描きません。<br><br>
       水色と赤は下書き用の色です。「水色と赤を全部消す」でまとめて片付きます。
       取り消しで戻せます。<br>
-      コマを長押しすると、長さを変えたり、前後へ動かしたり、消したりできます。<br>
+      コマを長押しすると、長さを変えたり、前後へ動かしたり、
+      コピーしたり、消したりできます。<br>
+      コピーして貼ると同じ絵のコマが増えます。
+      前のコマを少しだけ変えて次を描くときに使えます。<br>
       描いたものは自動で残ります。名前を付けて保存すると、
       いくつも持っておいて開き直せます。<br><br>
       <strong>enter</strong> 新しいコマ（n も可）<br>
       <strong>0</strong> 再生 / <strong>8</strong> ループ再生の切替<br>
       <strong>4</strong> <strong>6</strong> コマ送り（← → も可）<br>
-      <strong>del</strong> 見ているコマを削除 / <strong>⌘Z</strong> 取り消す<br><br>
+      <strong>del</strong> 見ているコマを削除 / <strong>⌘Z</strong> 取り消す<br>
+      <strong>⌘C</strong> コマをコピー / <strong>⌘V</strong> すぐ後ろに貼る<br><br>
       ホーム画面に追加すると全画面で使えます。<br>
       描いたものは端末に残るので、閉じても続けられます。<br><br>
       <a href="../">線画撮りくん（カメラでコマ撮り）へ</a>
@@ -820,6 +833,40 @@ function deleteCurrent(){
   if(playing || exporting || frames.length <= 1) return;
   deleteFrame(current);
 }
+/* ---------- コマを写す ----------
+   同じ絵をもう一度使ったり、前のコマを元に次を描き起こすための写し。
+   点の配列まで作り直す。使い回すと、貼ったコマに描き足したときに
+   元のコマまで一緒に変わってしまう。続けて貼る場合も同じ理由で、
+   貼るたびにここを通して作り直す。 */
+let clip = null;              // 写したコマ { strokes, hold }
+
+function cloneStrokes(list){
+  return list.map(st=>({ tool:st.tool, color:st.color, w:st.w, erase:st.erase,
+                         pts: st.pts.map(q=>[q[0], q[1], q[2]]) }));
+}
+function copyFrame(i){
+  const f = frames[i];
+  if(!f) return false;
+  clip = { strokes: cloneStrokes(f.strokes), hold: Math.max(1, f.hold||1) };
+  return true;
+}
+/* at のすぐ後ろに差し込む。長さも一緒に写す。 */
+function pasteFrame(at){
+  if(playing || exporting || !clip) return false;
+  const sk = cloneStrokes(clip.strokes);
+  const f = { id: nextId++, strokes: sk, redo: [],
+              // 貼った線も1本ずつ取り消せるようにしておく
+              ops: sk.map(()=>({ k:"s" })), redoOps: [], hold: clip.hold };
+  const to = Math.min(Math.max(0, at + 1), frames.length);
+  frames.splice(to, 0, f);
+  current = to;
+  holdTarget = to;
+  if(layer === "back"){ layer = "art"; markSeg("#layerSeg", "art"); syncTool(); }
+  saveFrame(f); saveState();
+  redrawAll(); rebuildStrip(); refresh();
+  return true;
+}
+
 function expanded(){
   const out = [];
   frames.forEach((f,i)=>{ const n = Math.max(1, f.hold||1); for(let k=0;k<n;k++) out.push(i); });
@@ -926,6 +973,9 @@ function syncMoveButtons(){
   const i = holdTarget;
   $("#moveLeft").disabled  = i === null || i <= 0;
   $("#moveRight").disabled = i === null || i >= frames.length - 1;
+  $("#holdCopy").disabled  = i === null;
+  // 何も写していなければ貼れない。押せるようになったことが写せた合図。
+  $("#holdPaste").disabled = i === null || !clip;
   if(i !== null) $("#holdTitle").textContent =
     (i + 1) + "コマ目 / 全" + frames.length + "コマ（" + fps + "fps）";
 }
@@ -1381,6 +1431,9 @@ function buildInks(){
 }
 
 $("#addFrame").onclick = addFrame;
+/* 写しも貼りも画面は閉じない。続けて何枚も貼れるようにするため。 */
+$("#holdCopy").onclick  = ()=>{ if(copyFrame(holdTarget)) openHold(holdTarget); };
+$("#holdPaste").onclick = ()=>{ if(pasteFrame(holdTarget)) openHold(holdTarget); };
 $("#prev").onclick = ()=>go(current - 1);
 $("#next").onclick = ()=>go(current + 1);
 $("#play").onclick = togglePlay;
@@ -1485,6 +1538,8 @@ window.addEventListener("keydown", e=>{
   const k = e.key;
   const meta = e.metaKey || e.ctrlKey;
   if(meta && k.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if(meta && k.toLowerCase() === "c"){ e.preventDefault(); copyFrame(current); return; }
+  if(meta && k.toLowerCase() === "v"){ e.preventDefault(); pasteFrame(current); return; }
   if(meta || e.altKey) return;
   if(k === "Enter" || k === "n" || k === "N"){ e.preventDefault(); addFrame(); }
   else if(k === "0"){ e.preventDefault(); togglePlay(); }
